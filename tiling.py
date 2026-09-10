@@ -10,7 +10,9 @@ from typing_extensions import override
 
 LAYOUT_VERSION = 1
 LAYOUT_ORDER = "source_row_column"
-MERGE_POLICY = "normalized_linear_overlap_v1"
+LAYOUT_COMPATIBILITY = "explicit_rectangles_v1"
+LEGACY_LINEAR_MERGE_POLICY = "normalized_linear_overlap_v1"
+SUPPORTED_LAYOUT_POLICIES = frozenset((LAYOUT_COMPATIBILITY, LEGACY_LINEAR_MERGE_POLICY))
 TILE_LAYOUT = io.Custom("TILE_LAYOUT")
 
 
@@ -73,7 +75,7 @@ class TileLayout:
     requested_parameters: RequestedTileParameters
     spatial_records: tuple[SpatialTileRecord, ...]
     order: str = LAYOUT_ORDER
-    merge_policy: str = MERGE_POLICY
+    merge_policy: str = LAYOUT_COMPATIBILITY
 
     @property
     def required_tile_count(self) -> int:
@@ -224,8 +226,8 @@ def validate_tile_layout(layout: TileLayout) -> None:
         raise ValueError(f"Unsupported TILE_LAYOUT version {layout.version}; expected {LAYOUT_VERSION}.")
     if layout.order != LAYOUT_ORDER:
         raise ValueError(f"Unsupported TILE_LAYOUT order {layout.order!r}.")
-    if layout.merge_policy != MERGE_POLICY:
-        raise ValueError(f"Unsupported TILE_LAYOUT merge policy {layout.merge_policy!r}.")
+    if layout.merge_policy not in SUPPORTED_LAYOUT_POLICIES:
+        raise ValueError(f"Unsupported TILE_LAYOUT compatibility policy {layout.merge_policy!r}.")
     if layout.geometry_mode not in ("fixed_tile", "bounded_grid"):
         raise ValueError(f"Invalid layout geometry mode {layout.geometry_mode!r}.")
     if layout.requested_parameters.mode != layout.geometry_mode:
@@ -380,7 +382,7 @@ def _tile_weight(
     return y_weight[:, None, None] * x_weight[None, :, None]
 
 
-def untile_image_batch(tiles: torch.Tensor, layout: TileLayout) -> torch.Tensor:
+def _validate_tiles(tiles: torch.Tensor, layout: TileLayout) -> None:
     validate_tile_layout(layout)
     if not isinstance(tiles, torch.Tensor):
         raise TypeError(f"tiles must be a torch.Tensor, got {type(tiles).__name__}.")
@@ -403,6 +405,8 @@ def untile_image_batch(tiles: torch.Tensor, layout: TileLayout) -> torch.Tensor:
     if not tiles.is_floating_point():
         raise TypeError(f"Image Untile Batch requires floating-point IMAGE tiles, got {tiles.dtype}.")
 
+
+def _untile_linear(tiles: torch.Tensor, layout: TileLayout) -> torch.Tensor:
     accumulation_dtype = torch.float32 if tiles.dtype in (torch.float16, torch.bfloat16) else tiles.dtype
     accumulator = torch.zeros(
         (layout.source_batch_size, layout.source_height, layout.source_width, layout.channels),
@@ -434,6 +438,120 @@ def untile_image_batch(tiles: torch.Tensor, layout: TileLayout) -> torch.Tensor:
 
     result = accumulator / weight_sum
     return result.to(tiles.dtype)
+
+
+def _overlap_midpoint(earlier: Rect, later: Rect, axis: str) -> int:
+    if axis == "x":
+        overlap_start = later.x0
+        overlap_end = earlier.x1
+    else:
+        overlap_start = later.y0
+        overlap_end = earlier.y1
+    overlap_length = overlap_end - overlap_start
+    if overlap_length < 0:
+        raise ValueError(f"Adjacent TILE_LAYOUT records have a gap on axis {axis}.")
+    return overlap_start + overlap_length // 2
+
+
+def _hard_cut_ownership(layout: TileLayout) -> tuple[Rect, ...]:
+    records = layout.spatial_records
+    ownership: list[Rect] = []
+    for record in records:
+        source = record.source_rect
+        if record.column == 0:
+            x0 = 0
+        else:
+            left = records[record.row * layout.columns + record.column - 1].source_rect
+            x0 = _overlap_midpoint(left, source, "x")
+        if record.column + 1 == layout.columns:
+            x1 = layout.source_width
+        else:
+            right = records[record.row * layout.columns + record.column + 1].source_rect
+            x1 = _overlap_midpoint(source, right, "x")
+        if record.row == 0:
+            y0 = 0
+        else:
+            top = records[(record.row - 1) * layout.columns + record.column].source_rect
+            y0 = _overlap_midpoint(top, source, "y")
+        if record.row + 1 == layout.rows:
+            y1 = layout.source_height
+        else:
+            bottom = records[(record.row + 1) * layout.columns + record.column].source_rect
+            y1 = _overlap_midpoint(source, bottom, "y")
+
+        owned = Rect(x0, y0, x1, y1)
+        if not (
+            source.x0 <= owned.x0 < owned.x1 <= source.x1
+            and source.y0 <= owned.y0 < owned.y1 <= source.y1
+        ):
+            raise ValueError(
+                f"Hard-cut ownership for tile ({record.row}, {record.column}) is outside its source rectangle."
+            )
+        ownership.append(owned)
+
+    for row in range(layout.rows):
+        row_rects = ownership[row * layout.columns:(row + 1) * layout.columns]
+        if row_rects[0].x0 != 0 or row_rects[-1].x1 != layout.source_width:
+            raise ValueError("Hard-cut ownership does not cover the source width.")
+        if any(left.x1 != right.x0 for left, right in pairwise(row_rects)):
+            raise ValueError("Hard-cut horizontal ownership has a gap or overlap.")
+    for column in range(layout.columns):
+        column_rects = ownership[column::layout.columns]
+        if column_rects[0].y0 != 0 or column_rects[-1].y1 != layout.source_height:
+            raise ValueError("Hard-cut ownership does not cover the source height.")
+        if any(top.y1 != bottom.y0 for top, bottom in pairwise(column_rects)):
+            raise ValueError("Hard-cut vertical ownership has a gap or overlap.")
+
+    column_bounds = [(ownership[column].x0, ownership[column].x1) for column in range(layout.columns)]
+    row_bounds = [
+        (ownership[row * layout.columns].y0, ownership[row * layout.columns].y1)
+        for row in range(layout.rows)
+    ]
+    for record, owned in zip(records, ownership):
+        if (owned.x0, owned.x1) != column_bounds[record.column]:
+            raise ValueError("Hard-cut X ownership is inconsistent across grid rows.")
+        if (owned.y0, owned.y1) != row_bounds[record.row]:
+            raise ValueError("Hard-cut Y ownership is inconsistent across grid columns.")
+    return tuple(ownership)
+
+
+def _untile_hard_cut(tiles: torch.Tensor, layout: TileLayout) -> torch.Tensor:
+    ownership = _hard_cut_ownership(layout)
+    result = torch.empty(
+        (layout.source_batch_size, layout.source_height, layout.source_width, layout.channels),
+        device=tiles.device,
+        dtype=tiles.dtype,
+    )
+    spatial_count = len(layout.spatial_records)
+    for source_index in range(layout.source_batch_size):
+        for spatial_index, (record, owned) in enumerate(zip(layout.spatial_records, ownership)):
+            source = record.source_rect
+            valid = record.valid_rect
+            tile_x0 = valid.x0 + owned.x0 - source.x0
+            tile_y0 = valid.y0 + owned.y0 - source.y0
+            tile_x1 = tile_x0 + owned.width
+            tile_y1 = tile_y0 + owned.height
+            if not (
+                valid.x0 <= tile_x0 < tile_x1 <= valid.x1
+                and valid.y0 <= tile_y0 < tile_y1 <= valid.y1
+            ):
+                raise ValueError(
+                    f"Hard-cut ownership for tile ({record.row}, {record.column}) reaches padded pixels."
+                )
+            tile_index = source_index * spatial_count + spatial_index
+            result[source_index, owned.y0:owned.y1, owned.x0:owned.x1, :].copy_(
+                tiles[tile_index, tile_y0:tile_y1, tile_x0:tile_x1, :]
+            )
+    return result
+
+
+def untile_image_batch(tiles: torch.Tensor, layout: TileLayout, merge_mode: str = "linear") -> torch.Tensor:
+    _validate_tiles(tiles, layout)
+    if merge_mode == "linear":
+        return _untile_linear(tiles, layout)
+    if merge_mode == "hard_cut":
+        return _untile_hard_cut(tiles, layout)
+    raise ValueError(f"Unsupported merge_mode {merge_mode!r}; expected 'linear' or 'hard_cut'.")
 
 
 class ImageTileBatch(io.ComfyNode):
@@ -496,13 +614,14 @@ class ImageUntileBatch(io.ComfyNode):
             inputs=[
                 io.Image.Input("tiles"),
                 TILE_LAYOUT.Input("layout"),
+                io.Combo.Input("merge_mode", options=["linear", "hard_cut"], default="linear"),
             ],
             outputs=[io.Image.Output(display_name="image")],
         )
 
     @classmethod
-    def execute(cls, tiles: torch.Tensor, layout: TileLayout) -> io.NodeOutput:
-        return io.NodeOutput(untile_image_batch(tiles, layout))
+    def execute(cls, tiles: torch.Tensor, layout: TileLayout, merge_mode: str = "linear") -> io.NodeOutput:
+        return io.NodeOutput(untile_image_batch(tiles, layout, merge_mode))
 
 
 class UtilitySuiteTilingExtension(ComfyExtension):

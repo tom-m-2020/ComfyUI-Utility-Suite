@@ -154,6 +154,125 @@ class BatchAndIdentityTests(unittest.TestCase):
         self.assertEqual(result.dtype, torch.bfloat16)
         self.assertLessEqual((result.float() - image.float()).abs().max().item(), 4e-3)
 
+    def test_explicit_linear_matches_default_and_previous_values(self):
+        layout = layout_for((1, 1, 9, 1), tile=(6, 1), overlap=(2, 0))
+        tiles = torch.zeros((2, 1, 6, 1))
+        tiles[1] = 1
+        default = tiling.untile_image_batch(tiles, layout)
+        explicit = tiling.untile_image_batch(tiles, layout, "linear")
+        expected = torch.tensor([0, 0, 0, 0.25, 0.5, 0.75, 1, 1, 1]).reshape(1, 1, 9, 1)
+        self.assertTrue(torch.equal(default, explicit))
+        self.assertTrue(torch.equal(explicit, expected))
+
+
+class HardCutTests(unittest.TestCase):
+    @staticmethod
+    def constant_tiles(layout, values, dtype=torch.float32, device="cpu"):
+        tiles = torch.empty(
+            (
+                layout.required_tile_count,
+                layout.tile_tensor_height,
+                layout.tile_tensor_width,
+                layout.channels,
+            ),
+            dtype=dtype,
+            device=device,
+        )
+        for index, value in enumerate(values):
+            tiles[index].fill_(value)
+        return tiles
+
+    def test_one_by_one_and_padding_exclusion(self):
+        image = patterned_image(1, 3, 4)
+        layout = layout_for(tuple(image.shape), tile=(7, 6), overlap=(2, 2))
+        tiles = tiling.tile_image_batch(image, layout)
+        tiles[:, 3:, :, :] = 99
+        tiles[:, :, 4:, :] = 99
+        output = tiling.untile_image_batch(tiles, layout, "hard_cut")
+        self.assertTrue(torch.equal(output, image))
+        self.assertEqual(output.dtype, image.dtype)
+        self.assertEqual(output.device, image.device)
+
+    def test_one_row_two_columns_even_overlap(self):
+        layout = layout_for((1, 1, 10, 1), tile=(6, 1), overlap=(2, 0))
+        tiles = self.constant_tiles(layout, [0, 1])
+        output = tiling.untile_image_batch(tiles, layout, "hard_cut").flatten()
+        self.assertTrue(torch.equal(output, torch.tensor([0, 0, 0, 0, 0, 1, 1, 1, 1, 1])))
+
+    def test_one_row_two_columns_odd_overlap_extra_goes_right(self):
+        layout = layout_for((1, 1, 9, 1), tile=(6, 1), overlap=(2, 0))
+        self.assertEqual(layout.spatial_records[0].neighbor_overlaps.right, 3)
+        tiles = self.constant_tiles(layout, [0, 1])
+        output = tiling.untile_image_batch(tiles, layout, "hard_cut").flatten()
+        self.assertTrue(torch.equal(output, torch.tensor([0, 0, 0, 0, 1, 1, 1, 1, 1])))
+
+    def test_two_rows_one_column_even_overlap(self):
+        layout = layout_for((1, 10, 1, 1), tile=(1, 6), overlap=(0, 2))
+        tiles = self.constant_tiles(layout, [2, 8])
+        output = tiling.untile_image_batch(tiles, layout, "hard_cut").flatten()
+        self.assertTrue(torch.equal(output, torch.tensor([2, 2, 2, 2, 2, 8, 8, 8, 8, 8])))
+
+    def test_two_rows_one_column_odd_overlap_extra_goes_bottom(self):
+        layout = layout_for((1, 9, 1, 1), tile=(1, 6), overlap=(0, 2))
+        tiles = self.constant_tiles(layout, [2, 8])
+        output = tiling.untile_image_batch(tiles, layout, "hard_cut").flatten()
+        self.assertTrue(torch.equal(output, torch.tensor([2, 2, 2, 2, 8, 8, 8, 8, 8])))
+
+    def test_two_by_two_four_way_intersection(self):
+        layout = layout_for((1, 9, 9, 1), tile=(6, 6), overlap=(2, 2))
+        tiles = self.constant_tiles(layout, [0, 1, 2, 3])
+        output = tiling.untile_image_batch(tiles, layout, "hard_cut")[0, :, :, 0]
+        expected = torch.empty((9, 9))
+        expected[:4, :4] = 0
+        expected[:4, 4:] = 1
+        expected[4:, :4] = 2
+        expected[4:, 4:] = 3
+        self.assertTrue(torch.equal(output, expected))
+        self.assertEqual(set(output.unique().tolist()), {0.0, 1.0, 2.0, 3.0})
+
+    def test_three_by_three_zero_nominal_overlap_rectangular_tiles(self):
+        layout = layout_for((1, 11, 14, 1), tile=(6, 5), overlap=(0, 0))
+        self.assertEqual((layout.rows, layout.columns), (3, 3))
+        tiles = self.constant_tiles(layout, range(9))
+        output = tiling.untile_image_batch(tiles, layout, "hard_cut")
+        self.assertEqual(tuple(output.shape), (1, 11, 14, 1))
+        self.assertEqual(set(output.unique().tolist()), {float(value) for value in range(9)})
+
+    def test_rectangular_tiles_and_different_xy_overlaps_identity(self):
+        image = patterned_image(1, 17, 23)
+        layout = layout_for(tuple(image.shape), tile=(10, 7), overlap=(4, 2))
+        tiles = tiling.tile_image_batch(image, layout)
+        output = tiling.untile_image_batch(tiles, layout, "hard_cut")
+        self.assertTrue(torch.equal(output, image))
+
+    def test_batch_two_source_major_and_independent(self):
+        layout = layout_for((2, 1, 9, 1), tile=(6, 1), overlap=(2, 0))
+        tiles = self.constant_tiles(layout, [0, 1, 10, 11])
+        output = tiling.untile_image_batch(tiles, layout, "hard_cut")[:, 0, :, 0]
+        expected = torch.tensor(
+            [
+                [0, 0, 0, 0, 1, 1, 1, 1, 1],
+                [10, 10, 10, 10, 11, 11, 11, 11, 11],
+            ]
+        )
+        self.assertTrue(torch.equal(output, expected))
+
+    def test_hard_cut_preserves_low_precision_dtype(self):
+        layout = layout_for((1, 1, 9, 1), tile=(6, 1), overlap=(2, 0))
+        for dtype in (torch.float16, torch.bfloat16):
+            tiles = self.constant_tiles(layout, [0, 1], dtype=dtype)
+            output = tiling.untile_image_batch(tiles, layout, "hard_cut")
+            self.assertEqual(output.dtype, dtype)
+            self.assertEqual(output.device, tiles.device)
+
+    def test_legacy_linear_layout_supports_both_modes(self):
+        layout = layout_for((1, 1, 9, 1), tile=(6, 1), overlap=(2, 0))
+        legacy = dataclasses.replace(layout, merge_policy=tiling.LEGACY_LINEAR_MERGE_POLICY)
+        tiles = self.constant_tiles(layout, [0, 1])
+        tiling.untile_image_batch(tiles, legacy, "linear")
+        hard = tiling.untile_image_batch(tiles, legacy, "hard_cut")
+        self.assertEqual(tuple(hard.shape), (1, 1, 9, 1))
+
 
 class ValidationTests(unittest.TestCase):
     def setUp(self):
@@ -166,11 +285,16 @@ class ValidationTests(unittest.TestCase):
             tiling.untile_image_batch(self.tiles[0], self.layout)
 
     def test_missing_and_extra_tiles(self):
-        with self.assertRaisesRegex(ValueError, "Tile count mismatch"):
-            tiling.untile_image_batch(self.tiles[:-1], self.layout)
-        extra = torch.cat((self.tiles, self.tiles[:1]), dim=0)
-        with self.assertRaisesRegex(ValueError, "Tile count mismatch"):
-            tiling.untile_image_batch(extra, self.layout)
+        for merge_mode in ("linear", "hard_cut"):
+            with self.assertRaisesRegex(ValueError, "Tile count mismatch"):
+                tiling.untile_image_batch(self.tiles[:-1], self.layout, merge_mode)
+            extra = torch.cat((self.tiles, self.tiles[:1]), dim=0)
+            with self.assertRaisesRegex(ValueError, "Tile count mismatch"):
+                tiling.untile_image_batch(extra, self.layout, merge_mode)
+
+    def test_invalid_merge_mode(self):
+        with self.assertRaisesRegex(ValueError, "Unsupported merge_mode"):
+            tiling.untile_image_batch(self.tiles, self.layout, "unknown")
 
     def test_wrong_width_height_and_channels(self):
         with self.assertRaisesRegex(ValueError, "height mismatch"):
