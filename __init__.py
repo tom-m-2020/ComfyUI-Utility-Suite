@@ -3,6 +3,7 @@ from typing_extensions import override
 
 from .image_batch import ImageBatchToImageList, ImageListToImageBatch
 from .input_kind import ListBatchInspector
+from .list_any import ListAnyAppend
 from .tiling import ImageTileBatch, ImageUntileBatch
 
 
@@ -15,6 +16,7 @@ class UtilitySuiteExtension(ComfyExtension):
             ImageListToImageBatch,
             ImageBatchToImageList,
             ListBatchInspector,
+            ListAnyAppend,
         ]
 
 
