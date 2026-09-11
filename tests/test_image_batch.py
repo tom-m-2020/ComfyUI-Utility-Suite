@@ -79,6 +79,7 @@ class ImageBatchListTests(unittest.TestCase):
                 "UtilitySuiteImageUntileBatch",
                 "UtilitySuiteImageListToImageBatch",
                 "UtilitySuiteImageBatchToImageList",
+                "UtilitySuiteListBatchInspector",
             },
         )
 

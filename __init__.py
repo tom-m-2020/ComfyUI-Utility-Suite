@@ -2,6 +2,7 @@ from comfy_api.latest import ComfyExtension, io
 from typing_extensions import override
 
 from .image_batch import ImageBatchToImageList, ImageListToImageBatch
+from .input_kind import ListBatchInspector
 from .tiling import ImageTileBatch, ImageUntileBatch
 
 
@@ -13,6 +14,7 @@ class UtilitySuiteExtension(ComfyExtension):
             ImageUntileBatch,
             ImageListToImageBatch,
             ImageBatchToImageList,
+            ListBatchInspector,
         ]
 
 
