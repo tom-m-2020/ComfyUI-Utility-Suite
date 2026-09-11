@@ -346,6 +346,26 @@ def tile_image_batch(image: torch.Tensor, layout: TileLayout) -> torch.Tensor:
     return tiles
 
 
+def tile_bounding_boxes(layout: TileLayout) -> tuple[list[tuple[int, int, int, int]], list[dict[str, int]]]:
+    validate_tile_layout(layout)
+    bboxes: list[tuple[int, int, int, int]] = []
+    bounding_boxes: list[dict[str, int]] = []
+    for _source_index in range(layout.source_batch_size):
+        for record in layout.spatial_records:
+            source_rect = record.source_rect
+            bbox = (source_rect.x0, source_rect.y0, source_rect.width, source_rect.height)
+            bboxes.append(bbox)
+            bounding_boxes.append(
+                {
+                    "x": source_rect.x0,
+                    "y": source_rect.y0,
+                    "width": source_rect.width,
+                    "height": source_rect.height,
+                }
+            )
+    return bboxes, bounding_boxes
+
+
 def _linear_ramp(length: int, ascending: bool, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
     if length <= 0:
         return torch.empty((0,), device=device, dtype=dtype)
@@ -702,6 +722,8 @@ class ImageTileBatch(io.ComfyNode):
             outputs=[
                 io.Image.Output(display_name="tiles"),
                 TILE_LAYOUT.Output(display_name="layout"),
+                io.BBOX.Output("bbox", display_name="bbox", is_output_list=True),
+                io.BoundingBox.Output("bounding_box", display_name="bounding_box", is_output_list=True),
             ],
         )
 
@@ -727,7 +749,9 @@ class ImageTileBatch(io.ComfyNode):
             max_columns,
             max_rows,
         )
-        return io.NodeOutput(tile_image_batch(image, layout), layout)
+        tiles = tile_image_batch(image, layout)
+        bboxes, bounding_boxes = tile_bounding_boxes(layout)
+        return io.NodeOutput(tiles, layout, bboxes, bounding_boxes)
 
 
 class ImageUntileBatch(io.ComfyNode):

@@ -467,6 +467,73 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(untile_schema.inputs[2].default, "linear")
         self.assertEqual(untile_schema.inputs[3].id, "blend_width")
         self.assertEqual(untile_schema.inputs[3].default, 32)
+        self.assertEqual([output.io_type for output in tile_schema.outputs], ["IMAGE", "TILE_LAYOUT", "BBOX", "BOUNDING_BOX"])
+        self.assertFalse(tile_schema.outputs[0].is_output_list)
+        self.assertTrue(tile_schema.outputs[2].is_output_list)
+        self.assertTrue(tile_schema.outputs[3].is_output_list)
+
+
+class TileBoundingBoxTests(unittest.TestCase):
+    def _resolve(self, image_shape, mode, tile_width, tile_height, overlap_x, overlap_y, max_columns=3, max_rows=3):
+        layout = tiling.build_tile_layout(
+            image_shape,
+            mode,
+            tile_width,
+            tile_height,
+            overlap_x,
+            overlap_y,
+            max_columns,
+            max_rows,
+        )
+        return layout, tiling.tile_bounding_boxes(layout)
+
+    def test_one_image_one_tile(self):
+        layout, (bboxes, bounding_boxes) = self._resolve((1, 64, 96, 3), "fixed_tile", 96, 64, 0, 0)
+        self.assertEqual(layout.required_tile_count, 1)
+        self.assertEqual(bboxes, [(0, 0, 96, 64)])
+        self.assertEqual(bounding_boxes, [{"x": 0, "y": 0, "width": 96, "height": 64}])
+
+    def test_edge_aligned_two_by_two_exact_values(self):
+        layout, (bboxes, bounding_boxes) = self._resolve((1, 90, 110, 3), "fixed_tile", 64, 56, 16, 12)
+        self.assertEqual((layout.rows, layout.columns), (2, 2))
+        self.assertEqual(bboxes, [(0, 0, 64, 56), (46, 0, 64, 56), (0, 34, 64, 56), (46, 34, 64, 56)])
+        self.assertEqual(
+            bounding_boxes,
+            [{"x": x, "y": y, "width": width, "height": height} for x, y, width, height in bboxes],
+        )
+
+    def test_source_batch_duplicates_spatial_order(self):
+        layout, (bboxes, bounding_boxes) = self._resolve((2, 90, 110, 3), "fixed_tile", 64, 56, 16, 12)
+        spatial = [(0, 0, 64, 56), (46, 0, 64, 56), (0, 34, 64, 56), (46, 34, 64, 56)]
+        self.assertEqual(bboxes, spatial + spatial)
+        self.assertEqual(len(bboxes), layout.required_tile_count)
+        self.assertEqual(len(bounding_boxes), layout.required_tile_count)
+
+    def test_bbox_excludes_replicate_padding(self):
+        layout, (bboxes, bounding_boxes) = self._resolve((1, 30, 40, 3), "fixed_tile", 64, 56, 16, 12)
+        self.assertEqual((layout.tile_tensor_height, layout.tile_tensor_width), (56, 64))
+        self.assertEqual(bboxes, [(0, 0, 40, 30)])
+        self.assertEqual(bounding_boxes[0], {"x": 0, "y": 0, "width": 40, "height": 30})
+
+    def test_bounded_grid_uses_resolved_source_rectangles(self):
+        layout, (bboxes, bounding_boxes) = self._resolve((1, 140, 220, 3), "bounded_grid", 80, 72, 16, 8, 2, 2)
+        expected = [
+            (record.source_rect.x0, record.source_rect.y0, record.source_rect.width, record.source_rect.height)
+            for record in layout.spatial_records
+        ]
+        self.assertEqual(bboxes, expected)
+        self.assertEqual(
+            bounding_boxes,
+            [{"x": x, "y": y, "width": width, "height": height} for x, y, width, height in expected],
+        )
+
+    def test_node_execute_cardinality_matches_tiles(self):
+        image = torch.rand((2, 90, 110, 3))
+        output = tiling.ImageTileBatch.execute(image, "fixed_tile", 64, 56, 16, 12, 3, 3)
+        tiles, layout, bboxes, bounding_boxes = output.result
+        self.assertEqual(tiles.shape[0], layout.required_tile_count)
+        self.assertEqual(tiles.shape[0], len(bboxes))
+        self.assertEqual(tiles.shape[0], len(bounding_boxes))
 
 
 if __name__ == "__main__":
