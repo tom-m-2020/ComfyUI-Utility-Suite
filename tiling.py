@@ -545,13 +545,140 @@ def _untile_hard_cut(tiles: torch.Tensor, layout: TileLayout) -> torch.Tensor:
     return result
 
 
-def untile_image_batch(tiles: torch.Tensor, layout: TileLayout, merge_mode: str = "linear") -> torch.Tensor:
+def _limited_band(earlier: Rect, later: Rect, axis: str, blend_width: int) -> tuple[int, int]:
+    if axis == "x":
+        overlap_start = later.x0
+        overlap_end = earlier.x1
+    else:
+        overlap_start = later.y0
+        overlap_end = earlier.y1
+    overlap_length = overlap_end - overlap_start
+    if overlap_length < 0:
+        raise ValueError(f"Adjacent TILE_LAYOUT records have a gap on axis {axis}.")
+    effective_width = min(blend_width, overlap_length)
+    cut = _overlap_midpoint(earlier, later, axis)
+    left_half = effective_width // 2
+    right_half = effective_width - left_half
+    blend_start = cut - left_half
+    blend_end = cut + right_half
+    if blend_start < overlap_start or blend_end > overlap_end:
+        raise ValueError(f"Limited-linear blend band is outside the overlap on axis {axis}.")
+    return blend_start, blend_end
+
+
+def _limited_axis_weight(
+    record: SpatialTileRecord,
+    layout: TileLayout,
+    axis: str,
+    blend_width: int,
+    device: torch.device,
+    dtype: torch.dtype,
+    ramp_cache: dict[tuple[int, bool], torch.Tensor],
+) -> torch.Tensor:
+    source = record.source_rect
+    if axis == "x":
+        length = source.width
+        start = source.x0
+        before_index = record.row * layout.columns + record.column - 1
+        after_index = record.row * layout.columns + record.column + 1
+        has_before = record.column > 0
+        has_after = record.column + 1 < layout.columns
+    else:
+        length = source.height
+        start = source.y0
+        before_index = (record.row - 1) * layout.columns + record.column
+        after_index = (record.row + 1) * layout.columns + record.column
+        has_before = record.row > 0
+        has_after = record.row + 1 < layout.rows
+
+    weight = torch.ones((length,), device=device, dtype=dtype)
+
+    def ramp(ramp_length: int, ascending: bool) -> torch.Tensor:
+        key = (ramp_length, ascending)
+        if key not in ramp_cache:
+            ramp_cache[key] = _linear_ramp(ramp_length, ascending, device, dtype)
+        return ramp_cache[key]
+
+    if has_before:
+        earlier = layout.spatial_records[before_index].source_rect
+        blend_start, blend_end = _limited_band(earlier, source, axis, blend_width)
+        local_start = blend_start - start
+        local_end = blend_end - start
+        weight[:local_start] = 0
+        if local_end > local_start:
+            weight[local_start:local_end] = ramp(local_end - local_start, True)
+    if has_after:
+        later = layout.spatial_records[after_index].source_rect
+        blend_start, blend_end = _limited_band(source, later, axis, blend_width)
+        local_start = blend_start - start
+        local_end = blend_end - start
+        if local_end > local_start:
+            weight[local_start:local_end] *= ramp(local_end - local_start, False)
+        weight[local_end:] = 0
+    return weight
+
+
+def _untile_limited_linear(tiles: torch.Tensor, layout: TileLayout, blend_width: int) -> torch.Tensor:
+    if blend_width == 0:
+        return _untile_hard_cut(tiles, layout)
+
+    _hard_cut_ownership(layout)
+    accumulation_dtype = torch.float32 if tiles.dtype in (torch.float16, torch.bfloat16) else tiles.dtype
+    accumulator = torch.zeros(
+        (layout.source_batch_size, layout.source_height, layout.source_width, layout.channels),
+        device=tiles.device,
+        dtype=accumulation_dtype,
+    )
+    weight_sum = torch.zeros(
+        (1, layout.source_height, layout.source_width, 1),
+        device=tiles.device,
+        dtype=accumulation_dtype,
+    )
+    ramp_cache: dict[tuple[int, bool], torch.Tensor] = {}
+    spatial_count = len(layout.spatial_records)
+
+    for spatial_index, record in enumerate(layout.spatial_records):
+        source = record.source_rect
+        valid = record.valid_rect
+        x_weight = _limited_axis_weight(
+            record, layout, "x", blend_width, tiles.device, accumulation_dtype, ramp_cache
+        )
+        y_weight = _limited_axis_weight(
+            record, layout, "y", blend_width, tiles.device, accumulation_dtype, ramp_cache
+        )
+        weight = y_weight[:, None, None] * x_weight[None, :, None]
+        weight_sum[:, source.y0:source.y1, source.x0:source.x1, :] += weight.unsqueeze(0)
+
+        for source_index in range(layout.source_batch_size):
+            tile_index = source_index * spatial_count + spatial_index
+            tile = tiles[tile_index, valid.y0:valid.y1, valid.x0:valid.x1, :]
+            accumulator[source_index, source.y0:source.y1, source.x0:source.x1, :] += (
+                tile.to(accumulation_dtype) * weight
+            )
+
+    if not bool(torch.all(weight_sum > 0).item()):
+        raise ValueError("TILE_LAYOUT leaves at least one source pixel with zero accumulated weight.")
+    return (accumulator / weight_sum).to(tiles.dtype)
+
+
+def untile_image_batch(
+    tiles: torch.Tensor,
+    layout: TileLayout,
+    merge_mode: str = "linear",
+    blend_width: int = 32,
+) -> torch.Tensor:
     _validate_tiles(tiles, layout)
     if merge_mode == "linear":
         return _untile_linear(tiles, layout)
     if merge_mode == "hard_cut":
         return _untile_hard_cut(tiles, layout)
-    raise ValueError(f"Unsupported merge_mode {merge_mode!r}; expected 'linear' or 'hard_cut'.")
+    if merge_mode == "limited_linear":
+        if blend_width < 0:
+            raise ValueError(f"blend_width must be nonnegative, got {blend_width}.")
+        return _untile_limited_linear(tiles, layout, blend_width)
+    raise ValueError(
+        f"Unsupported merge_mode {merge_mode!r}; expected 'linear', 'hard_cut', or 'limited_linear'."
+    )
 
 
 class ImageTileBatch(io.ComfyNode):
@@ -614,14 +741,21 @@ class ImageUntileBatch(io.ComfyNode):
             inputs=[
                 io.Image.Input("tiles"),
                 TILE_LAYOUT.Input("layout"),
-                io.Combo.Input("merge_mode", options=["linear", "hard_cut"], default="linear"),
+                io.Combo.Input("merge_mode", options=["linear", "hard_cut", "limited_linear"], default="linear"),
+                io.Int.Input("blend_width", default=32, min=0, max=32768),
             ],
             outputs=[io.Image.Output(display_name="image")],
         )
 
     @classmethod
-    def execute(cls, tiles: torch.Tensor, layout: TileLayout, merge_mode: str = "linear") -> io.NodeOutput:
-        return io.NodeOutput(untile_image_batch(tiles, layout, merge_mode))
+    def execute(
+        cls,
+        tiles: torch.Tensor,
+        layout: TileLayout,
+        merge_mode: str = "linear",
+        blend_width: int = 32,
+    ) -> io.NodeOutput:
+        return io.NodeOutput(untile_image_batch(tiles, layout, merge_mode, blend_width))
 
 
 class UtilitySuiteTilingExtension(ComfyExtension):

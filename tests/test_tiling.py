@@ -274,6 +274,137 @@ class HardCutTests(unittest.TestCase):
         self.assertEqual(tuple(hard.shape), (1, 1, 9, 1))
 
 
+class LimitedLinearTests(unittest.TestCase):
+    @staticmethod
+    def constant_tiles(layout, values, dtype=torch.float32, device="cpu"):
+        return HardCutTests.constant_tiles(layout, values, dtype=dtype, device=device)
+
+    def test_one_by_one_and_padding_exclusion(self):
+        image = patterned_image(1, 3, 4)
+        layout = layout_for(tuple(image.shape), tile=(7, 6), overlap=(2, 2))
+        tiles = tiling.tile_image_batch(image, layout)
+        tiles[:, 3:, :, :] = 99
+        tiles[:, :, 4:, :] = 99
+        output = tiling.untile_image_batch(tiles, layout, "limited_linear", 3)
+        self.assertTrue(torch.equal(output, image))
+
+    def test_horizontal_limited_even_width(self):
+        layout = layout_for((1, 1, 18, 1), tile=(12, 1), overlap=(6, 0))
+        tiles = self.constant_tiles(layout, [0, 1])
+        output = tiling.untile_image_batch(tiles, layout, "limited_linear", 2).flatten()
+        expected = torch.tensor([0, 0, 0, 0, 0, 0, 0, 0, 1 / 3, 2 / 3, 1, 1, 1, 1, 1, 1, 1, 1])
+        self.assertTrue(torch.allclose(output, expected))
+        self.assertTrue(torch.equal(output[:8], torch.zeros(8)))
+        self.assertTrue(torch.equal(output[10:], torch.ones(8)))
+
+    def test_horizontal_limited_odd_width_extra_goes_after_cut(self):
+        layout = layout_for((1, 1, 18, 1), tile=(12, 1), overlap=(6, 0))
+        tiles = self.constant_tiles(layout, [0, 1])
+        output = tiling.untile_image_batch(tiles, layout, "limited_linear", 3).flatten()
+        expected = torch.tensor([0, 0, 0, 0, 0, 0, 0, 0, 0.25, 0.5, 0.75, 1, 1, 1, 1, 1, 1, 1])
+        self.assertTrue(torch.equal(output, expected))
+
+    def test_vertical_limited_width(self):
+        layout = layout_for((1, 18, 1, 1), tile=(1, 12), overlap=(0, 6))
+        tiles = self.constant_tiles(layout, [0, 1])
+        output = tiling.untile_image_batch(tiles, layout, "limited_linear", 2).flatten()
+        expected = torch.tensor([0, 0, 0, 0, 0, 0, 0, 0, 1 / 3, 2 / 3, 1, 1, 1, 1, 1, 1, 1, 1])
+        self.assertTrue(torch.allclose(output, expected))
+
+    def test_width_zero_equals_hard_cut_exactly(self):
+        layout = layout_for((1, 9, 9, 1), tile=(6, 6), overlap=(2, 2))
+        tiles = self.constant_tiles(layout, [0, 1, 2, 3])
+        hard = tiling.untile_image_batch(tiles, layout, "hard_cut")
+        limited = tiling.untile_image_batch(tiles, layout, "limited_linear", 0)
+        self.assertTrue(torch.equal(limited, hard))
+
+    def test_width_one_blends_only_midpoint_pixel(self):
+        layout = layout_for((1, 1, 18, 1), tile=(12, 1), overlap=(6, 0))
+        tiles = self.constant_tiles(layout, [0, 1])
+        output = tiling.untile_image_batch(tiles, layout, "limited_linear", 1).flatten()
+        self.assertTrue(torch.equal(output[:9], torch.zeros(9)))
+        self.assertEqual(output[9].item(), 0.5)
+        self.assertTrue(torch.equal(output[10:], torch.ones(8)))
+
+    def test_width_equal_to_overlap_matches_linear(self):
+        layout = layout_for((1, 1, 18, 1), tile=(12, 1), overlap=(6, 0))
+        tiles = self.constant_tiles(layout, [0, 1])
+        linear = tiling.untile_image_batch(tiles, layout, "linear")
+        limited = tiling.untile_image_batch(tiles, layout, "limited_linear", 6)
+        self.assertTrue(torch.equal(limited, linear))
+
+    def test_width_greater_than_overlap_uses_effective_overlap(self):
+        layout = layout_for((1, 1, 18, 1), tile=(12, 1), overlap=(6, 0))
+        tiles = self.constant_tiles(layout, [0, 1])
+        equal = tiling.untile_image_batch(tiles, layout, "limited_linear", 6)
+        greater = tiling.untile_image_batch(tiles, layout, "limited_linear", 99)
+        self.assertTrue(torch.equal(greater, equal))
+
+    def test_two_by_two_four_way_band_locality(self):
+        layout = layout_for((1, 18, 18, 1), tile=(12, 12), overlap=(6, 6))
+        tiles = self.constant_tiles(layout, [0, 10, 30, 70])
+        output = tiling.untile_image_batch(tiles, layout, "limited_linear", 2)[0, :, :, 0]
+        self.assertEqual(output[7, 7].item(), 0)
+        self.assertAlmostEqual(output[7, 8].item(), 10 / 3, places=5)
+        self.assertAlmostEqual(output[8, 7].item(), 10, places=5)
+        self.assertAlmostEqual(output[8, 8].item(), 50 / 3, places=5)
+        self.assertEqual(output[10, 10].item(), 70)
+
+    def test_three_by_three_and_zero_nominal_edge_overlap(self):
+        layout = layout_for((1, 22, 22, 1), tile=(10, 10), overlap=(4, 4))
+        tiles = self.constant_tiles(layout, range(9))
+        output = tiling.untile_image_batch(tiles, layout, "limited_linear", 2)
+        self.assertEqual(tuple(output.shape), (1, 22, 22, 1))
+
+        edge_layout = layout_for((1, 1, 19, 1), tile=(10, 1), overlap=(0, 0))
+        self.assertEqual(edge_layout.spatial_records[0].neighbor_overlaps.right, 1)
+        edge_tiles = self.constant_tiles(edge_layout, [0, 1])
+        edge_output = tiling.untile_image_batch(edge_tiles, edge_layout, "limited_linear", 8).flatten()
+        self.assertEqual(edge_output[9].item(), 0.5)
+
+    def test_rectangular_different_xy_actual_overlaps_identity(self):
+        image = patterned_image(1, 13, 14)
+        layout = layout_for(tuple(image.shape), tile=(10, 9), overlap=(4, 2))
+        self.assertNotEqual(
+            layout.spatial_records[0].neighbor_overlaps.right,
+            layout.spatial_records[0].neighbor_overlaps.bottom,
+        )
+        tiles = tiling.tile_image_batch(image, layout)
+        output = tiling.untile_image_batch(tiles, layout, "limited_linear", 3)
+        self.assertLessEqual((output - image).abs().max().item(), 2e-7)
+
+    def test_batch_two_independent(self):
+        layout = layout_for((2, 1, 18, 1), tile=(12, 1), overlap=(6, 0))
+        tiles = self.constant_tiles(layout, [0, 1, 10, 11])
+        output = tiling.untile_image_batch(tiles, layout, "limited_linear", 2)[:, 0, :, 0]
+        self.assertTrue(torch.allclose(output[1] - output[0], torch.full((18,), 10.0), atol=1e-6))
+
+    def test_low_precision_float32_accumulation_and_return_dtype(self):
+        layout = layout_for((1, 1, 18, 1), tile=(12, 1), overlap=(6, 0))
+        for dtype in (torch.float16, torch.bfloat16):
+            tiles = self.constant_tiles(layout, [0, 1], dtype=dtype)
+            output = tiling.untile_image_batch(tiles, layout, "limited_linear", 3)
+            self.assertEqual(output.dtype, dtype)
+            self.assertEqual(output.device, tiles.device)
+            expected = torch.tensor([0.25, 0.5, 0.75], dtype=dtype)
+            self.assertTrue(torch.equal(output.flatten()[8:11], expected))
+
+    def test_legacy_layout_support(self):
+        layout = layout_for((1, 1, 18, 1), tile=(12, 1), overlap=(6, 0))
+        legacy = dataclasses.replace(layout, merge_policy=tiling.LEGACY_LINEAR_MERGE_POLICY)
+        tiles = self.constant_tiles(layout, [0, 1])
+        output = tiling.untile_image_batch(tiles, legacy, "limited_linear", 2)
+        self.assertEqual(tuple(output.shape), (1, 1, 18, 1))
+
+    def test_negative_width_rejected_only_for_limited_mode(self):
+        layout = layout_for((1, 1, 18, 1), tile=(12, 1), overlap=(6, 0))
+        tiles = self.constant_tiles(layout, [0, 1])
+        with self.assertRaisesRegex(ValueError, "blend_width must be nonnegative"):
+            tiling.untile_image_batch(tiles, layout, "limited_linear", -1)
+        tiling.untile_image_batch(tiles, layout, "linear", -1)
+        tiling.untile_image_batch(tiles, layout, "hard_cut", -1)
+
+
 class ValidationTests(unittest.TestCase):
     def setUp(self):
         self.image = patterned_image(1, 10, 12)
@@ -332,6 +463,10 @@ class ValidationTests(unittest.TestCase):
         untile_schema = tiling.ImageUntileBatch.define_schema()
         self.assertEqual(tile_schema.node_id, "UtilitySuiteImageTileBatch")
         self.assertEqual(untile_schema.node_id, "UtilitySuiteImageUntileBatch")
+        self.assertEqual(untile_schema.inputs[2].options, ["linear", "hard_cut", "limited_linear"])
+        self.assertEqual(untile_schema.inputs[2].default, "linear")
+        self.assertEqual(untile_schema.inputs[3].id, "blend_width")
+        self.assertEqual(untile_schema.inputs[3].default, 32)
 
 
 if __name__ == "__main__":
