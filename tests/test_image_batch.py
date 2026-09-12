@@ -86,6 +86,8 @@ class ImageBatchListTests(unittest.TestCase):
                 "UtilitySuitePipeSetList",
                 "UtilitySuitePipeGetAny",
                 "UtilitySuitePipeGetList",
+                "UtilitySuitePipeToEditAny",
+                "UtilitySuitePipeFromAny",
             },
         )
 

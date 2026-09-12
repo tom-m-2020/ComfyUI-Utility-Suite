@@ -1,7 +1,14 @@
 from comfy_api.latest import ComfyExtension, io
 from typing_extensions import override
 
-from .any_pipe import PipeGetAny, PipeGetList, PipeSetAny, PipeSetList
+from .any_pipe import (
+    PipeFromAny,
+    PipeGetAny,
+    PipeGetList,
+    PipeSetAny,
+    PipeSetList,
+    PipeToEditAny,
+)
 from .image_batch import ImageBatchToImageList, ImageListToImageBatch
 from .input_kind import ListBatchInspector
 from .list_any import ListAnyAppend
@@ -24,6 +31,8 @@ class UtilitySuiteExtension(ComfyExtension):
             PipeSetList,
             PipeGetAny,
             PipeGetList,
+            PipeToEditAny,
+            PipeFromAny,
         ]
 
 

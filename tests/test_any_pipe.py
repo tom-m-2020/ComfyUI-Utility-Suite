@@ -115,6 +115,74 @@ class UtilityAnyPipeTests(unittest.TestCase):
         self.assertEqual(set_any.outputs[0].io_type, "UTILITY_ANY_PIPE")
         self.assertEqual(get_list.inputs[0].io_type, "UTILITY_ANY_PIPE")
 
+    def test_compact_builder_scalar_only_and_missing_outputs(self):
+        value = object()
+        pipe = ANY_PIPE.PipeToEditAny.execute(any_1=[value]).result[0]
+        output = ANY_PIPE.PipeFromAny.execute(pipe).result
+        self.assertIs(output[0], pipe)
+        self.assertIs(output[1], value)
+        self.assertEqual(output[2:7], (None, None, None, None, None))
+        self.assertEqual(output[7:], ([], [], []))
+
+    def test_compact_builder_one_list_and_several_scalars(self):
+        scalars = [object(), object(), object()]
+        masks = [object(), object(), object()]
+        pipe = ANY_PIPE.PipeToEditAny.execute(
+            any_1=[scalars[0]], any_2=[scalars[1]], any_3=[scalars[2]], list_1=masks
+        ).result[0]
+        output = ANY_PIPE.PipeFromAny.execute(pipe).result
+        self.assertTrue(all(output[index + 1] is value for index, value in enumerate(scalars)))
+        self.assertTrue(all(actual is expected for actual, expected in zip(output[7], masks, strict=True)))
+
+    def test_compact_builder_all_scalar_slots(self):
+        values = [object() for _ in range(6)]
+        inputs = {f"any_{index + 1}": [value] for index, value in enumerate(values)}
+        pipe = ANY_PIPE.PipeToEditAny.execute(**inputs).result[0]
+        output = ANY_PIPE.PipeFromAny.execute(pipe).result
+        self.assertTrue(all(output[index + 1] is value for index, value in enumerate(values)))
+
+    def test_compact_builder_independent_list_lengths(self):
+        lists = [[object() for _ in range(length)] for length in (2, 3, 5)]
+        pipe = ANY_PIPE.PipeToEditAny.execute(
+            list_1=lists[0], list_2=lists[1], list_3=lists[2]
+        ).result[0]
+        output = ANY_PIPE.PipeFromAny.execute(pipe).result
+        self.assertEqual([len(output[index]) for index in range(7, 10)], [2, 3, 5])
+        for actual, expected in zip(output[7:], lists, strict=True):
+            self.assertTrue(all(a is e for a, e in zip(actual, expected, strict=True)))
+
+    def test_compact_builder_edit_preserves_disconnected_fields(self):
+        original = ANY_PIPE.PipeToEditAny.execute(any_1=["old"], any_2=["keep"], list_1=[1, 2]).result[0]
+        edited = ANY_PIPE.PipeToEditAny.execute(pipe=[original], any_1=["new"]).result[0]
+        self.assertEqual(ANY_PIPE.get_scalar(original, "any_1"), "old")
+        self.assertEqual(ANY_PIPE.get_scalar(edited, "any_1"), "new")
+        self.assertEqual(ANY_PIPE.get_scalar(edited, "any_2"), "keep")
+        self.assertEqual(ANY_PIPE.get_list(edited, "list_1"), [1, 2])
+
+    def test_compact_builder_preserves_opaque_bbox_items(self):
+        tuple_bbox = (1, 2, 3, 4)
+        list_bbox = [5, 6, 7, 8]
+        pipe = ANY_PIPE.PipeToEditAny.execute(list_1=[tuple_bbox, list_bbox]).result[0]
+        result = ANY_PIPE.PipeFromAny.execute(pipe).result[7]
+        self.assertIs(result[0], tuple_bbox)
+        self.assertIs(result[1], list_bbox)
+
+    def test_compact_builder_rejects_multi_item_scalar_slot(self):
+        with self.assertRaisesRegex(ValueError, "any_4.*received 2"):
+            ANY_PIPE.PipeToEditAny.execute(any_4=["a", "b"])
+
+    def test_compact_nodes_2_schema_transport_contracts(self):
+        builder = ANY_PIPE.PipeToEditAny.define_schema()
+        extractor = ANY_PIPE.PipeFromAny.define_schema()
+        self.assertTrue(builder.is_input_list)
+        self.assertFalse(extractor.is_input_list)
+        self.assertEqual([item.id for item in builder.inputs], [
+            "pipe", "any_1", "any_2", "any_3", "any_4", "any_5", "any_6", "list_1", "list_2", "list_3"
+        ])
+        self.assertEqual([output.is_output_list for output in extractor.outputs], [
+            False, False, False, False, False, False, False, True, True, True
+        ])
+
 
 if __name__ == "__main__":
     unittest.main()

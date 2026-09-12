@@ -78,6 +78,16 @@ def get_list(pipe: UtilityAnyPipe, key: str) -> list[Any]:
     return list(entry.value)
 
 
+def _optional_field(pipe: UtilityAnyPipe, key: str, kind: Literal["scalar", "list"]) -> Any:
+    try:
+        entry = pipe.get(key)
+    except KeyError:
+        return None if kind == "scalar" else []
+    if entry.kind != kind:
+        raise TypeError(f"UTILITY_ANY_PIPE field {key!r} is {entry.kind}, expected {kind}.")
+    return entry.value if kind == "scalar" else list(entry.value)
+
+
 class PipeSetAny(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
@@ -160,3 +170,66 @@ class PipeGetList(io.ComfyNode):
     @classmethod
     def execute(cls, pipe: UtilityAnyPipe, key: str) -> io.NodeOutput:
         return io.NodeOutput(get_list(pipe, key))
+
+
+class PipeToEditAny(io.ComfyNode):
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="UtilitySuitePipeToEditAny",
+            display_name="Pipe To/Edit Any",
+            category="Utility Suite/Pipe",
+            description="Edits six scalar and three independent Comfy-list fields in an immutable utility pipe.",
+            is_input_list=True,
+            inputs=[
+                UTILITY_ANY_PIPE.Input("pipe", optional=True),
+                *[io.AnyType.Input(f"any_{index}", optional=True) for index in range(1, 7)],
+                *[io.AnyType.Input(f"list_{index}", optional=True) for index in range(1, 4)],
+            ],
+            outputs=[UTILITY_ANY_PIPE.Output("pipe", display_name="pipe")],
+        )
+
+    @classmethod
+    def execute(
+        cls,
+        pipe: list[UtilityAnyPipe] | None = None,
+        **inputs: list[Any],
+    ) -> io.NodeOutput:
+        result = _input_pipe(pipe)
+        for index in range(1, 7):
+            key = f"any_{index}"
+            if key in inputs:
+                result = set_scalar(result, key, _single_transport(inputs[key], key))
+        for index in range(1, 4):
+            key = f"list_{index}"
+            if key in inputs:
+                result = set_list(result, key, inputs[key])
+        return io.NodeOutput(result)
+
+
+class PipeFromAny(io.ComfyNode):
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="UtilitySuitePipeFromAny",
+            display_name="Pipe From Any",
+            category="Utility Suite/Pipe",
+            description="Extracts six scalar and three independent Comfy-list fields from a utility pipe.",
+            inputs=[UTILITY_ANY_PIPE.Input("pipe")],
+            outputs=[
+                UTILITY_ANY_PIPE.Output("pipe", display_name="pipe"),
+                *[io.AnyType.Output(f"any_{index}", display_name=f"any_{index}") for index in range(1, 7)],
+                *[
+                    io.AnyType.Output(f"list_{index}", display_name=f"list_{index}", is_output_list=True)
+                    for index in range(1, 4)
+                ],
+            ],
+        )
+
+    @classmethod
+    def execute(cls, pipe: UtilityAnyPipe) -> io.NodeOutput:
+        if not isinstance(pipe, UtilityAnyPipe):
+            raise TypeError(f"pipe must be UTILITY_ANY_PIPE, got {type(pipe).__name__}.")
+        scalars = [_optional_field(pipe, f"any_{index}", "scalar") for index in range(1, 7)]
+        lists = [_optional_field(pipe, f"list_{index}", "list") for index in range(1, 4)]
+        return io.NodeOutput(pipe, *scalars, *lists)
