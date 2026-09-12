@@ -11,6 +11,7 @@ from .any_pipe import (
 )
 from .image_batch import ImageBatchToImageList, ImageListToImageBatch
 from .input_kind import ListBatchInspector
+from .list_accumulator import ListAccumulatorAppend, ListAccumulatorToList
 from .list_any import ListAnyAppend
 from .mask_list import MaskFromList
 from .tiling import ImageTileBatch, ImageUntileBatch
@@ -26,6 +27,8 @@ class UtilitySuiteExtension(ComfyExtension):
             ImageBatchToImageList,
             ListBatchInspector,
             ListAnyAppend,
+            ListAccumulatorAppend,
+            ListAccumulatorToList,
             MaskFromList,
             PipeSetAny,
             PipeSetList,
