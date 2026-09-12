@@ -82,6 +82,10 @@ class ImageBatchListTests(unittest.TestCase):
                 "UtilitySuiteListBatchInspector",
                 "UtilitySuiteListAnyAppend",
                 "UtilitySuiteMaskFromList",
+                "UtilitySuitePipeSetAny",
+                "UtilitySuitePipeSetList",
+                "UtilitySuitePipeGetAny",
+                "UtilitySuitePipeGetList",
             },
         )
 
