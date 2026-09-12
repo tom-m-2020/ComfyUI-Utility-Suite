@@ -84,6 +84,7 @@ class ImageBatchListTests(unittest.TestCase):
                 "UtilitySuiteListAccumulatorAppend",
                 "UtilitySuiteListAccumulatorToList",
                 "UtilitySuiteMaskFromList",
+                "UtilitySuiteMaskToBoundingBox",
                 "UtilitySuitePipeSetAny",
                 "UtilitySuitePipeSetList",
                 "UtilitySuitePipeGetAny",

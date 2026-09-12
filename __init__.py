@@ -13,6 +13,7 @@ from .image_batch import ImageBatchToImageList, ImageListToImageBatch
 from .input_kind import ListBatchInspector
 from .list_accumulator import ListAccumulatorAppend, ListAccumulatorToList
 from .list_any import ListAnyAppend
+from .mask_bbox import MaskToBoundingBox
 from .mask_list import MaskFromList
 from .tiling import ImageTileBatch, ImageUntileBatch
 
@@ -30,6 +31,7 @@ class UtilitySuiteExtension(ComfyExtension):
             ListAccumulatorAppend,
             ListAccumulatorToList,
             MaskFromList,
+            MaskToBoundingBox,
             PipeSetAny,
             PipeSetList,
             PipeGetAny,
