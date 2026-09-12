@@ -18,37 +18,57 @@ LIST_ANY = sys.modules[f"{SPEC.name}.list_any"]
 
 
 class ListAnyAppendTests(unittest.TestCase):
-    def test_empty_accumulator_appends_one_item(self):
-        self.assertEqual(LIST_ANY.append_any(None, "a"), ["a"])
+    def test_empty_accumulator_plus_scalar_transport(self):
+        self.assertEqual(LIST_ANY.extend_comfy_items([None], ["a"]), ["a"])
         self.assertEqual(LIST_ANY.ListAnyAppend.execute([None], ["a"]).result, (["a"],))
 
-    def test_existing_accumulator_and_two_iterations(self):
-        first = LIST_ANY.append_any(None, "a")
-        second = LIST_ANY.append_any(first, "a")
-        self.assertEqual(second, ["a", "a"])
-        self.assertEqual(LIST_ANY.ListAnyAppend.execute(first, ["a"]).result, (["a", "a"],))
+    def test_existing_list_plus_scalar_transport(self):
+        self.assertEqual(LIST_ANY.extend_comfy_items(["a"], ["b"]), ["a", "b"])
 
-    def test_existing_order_is_preserved(self):
-        self.assertEqual(LIST_ANY.append_any(["a", "b"], "c"), ["a", "b", "c"])
+    def test_one_item_comfy_list_extends_flat(self):
+        self.assertEqual(LIST_ANY.extend_comfy_items(["a"], ["b"]), ["a", "b"])
 
-    def test_new_list_tensor_and_object_remain_single_items(self):
-        tensor = torch.arange(6).reshape(2, 3)
-        marker = object()
-        nested = LIST_ANY.append_any([], [1, 2])
-        with_tensor = LIST_ANY.append_any(nested, tensor)
-        with_object = LIST_ANY.append_any(with_tensor, marker)
-        self.assertEqual(nested, [[1, 2]])
-        self.assertIs(with_tensor[1], tensor)
-        self.assertIs(with_object[2], marker)
-        self.assertEqual(LIST_ANY.ListAnyAppend.execute([], [[1, 2]]).result, ([[1, 2]],))
+    def test_multi_item_comfy_list_extends_flat(self):
+        self.assertEqual(LIST_ANY.extend_comfy_items(["a"], ["b", "c"]), ["a", "b", "c"])
+
+    def test_list_valued_item_is_preserved_from_transport_container(self):
+        item = [1, 2, 3, 4]
+        result = LIST_ANY.extend_comfy_items([], [item])
+        self.assertEqual(result, [[1, 2, 3, 4]])
+        self.assertIs(result[0], item)
+
+    def test_bbox_items_are_not_flattened(self):
+        bbox0 = (10, 20, 100, 200)
+        bbox1 = (30, 40, 120, 220)
+        result = LIST_ANY.extend_comfy_items([], [bbox0, bbox1])
+        self.assertEqual(result, [bbox0, bbox1])
+        self.assertIs(result[0], bbox0)
+        self.assertIs(result[1], bbox1)
+
+    def test_tensor_objects_and_batch_dimensions_are_untouched(self):
+        tensor_a = torch.zeros(1, 8, 9)
+        tensor_b = torch.ones(4, 8, 9)
+        result = LIST_ANY.extend_comfy_items([], [tensor_a, tensor_b])
+        self.assertEqual(len(result), 2)
+        self.assertIs(result[0], tensor_a)
+        self.assertIs(result[1], tensor_b)
+        self.assertEqual(result[0].shape, (1, 8, 9))
+        self.assertEqual(result[1].shape, (4, 8, 9))
 
     def test_input_accumulator_is_not_mutated(self):
         accumulator = ["a", "b"]
-        result = LIST_ANY.append_any(accumulator, "c")
+        result = LIST_ANY.extend_comfy_items(accumulator, ["c", "d"])
         self.assertEqual(accumulator, ["a", "b"])
+        self.assertEqual(result, ["a", "b", "c", "d"])
         self.assertIsNot(result, accumulator)
 
-    def test_schema_declares_generic_comfy_list_output(self):
+    def test_repeated_loop_style_accumulation_stays_flat_and_ordered(self):
+        accumulator = [None]
+        for incoming in (["a"], ["b", "c"], ["d"]):
+            accumulator = LIST_ANY.extend_comfy_items(accumulator, incoming)
+        self.assertEqual(accumulator, ["a", "b", "c", "d"])
+
+    def test_schema_declares_generic_comfy_list_transport(self):
         schema = LIST_ANY.ListAnyAppend.define_schema()
         self.assertEqual(schema.node_id, "UtilitySuiteListAnyAppend")
         self.assertTrue(schema.is_input_list)

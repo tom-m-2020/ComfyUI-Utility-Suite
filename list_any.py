@@ -5,18 +5,12 @@ from typing import Any
 from comfy_api.latest import io
 
 
-def append_any(accumulator: Any, item: Any) -> list[Any]:
-    if accumulator is None:
-        return [item]
-    if isinstance(accumulator, list):
-        return [*accumulator, item]
-    return [accumulator, item]
-
-
-def _unwrap_new_item(values: list[Any]) -> Any:
-    if len(values) == 1:
-        return values[0]
-    return list(values)
+def extend_comfy_items(accumulator_items: list[Any], new_items: list[Any]) -> list[Any]:
+    if not isinstance(accumulator_items, (list, tuple)) or not isinstance(new_items, (list, tuple)):
+        raise TypeError("List Any (Append) requires Comfy whole-list input containers.")
+    if not accumulator_items or (len(accumulator_items) == 1 and accumulator_items[0] is None):
+        return list(new_items)
+    return [*accumulator_items, *new_items]
 
 
 class ListAnyAppend(io.ComfyNode):
@@ -26,7 +20,7 @@ class ListAnyAppend(io.ComfyNode):
             node_id="UtilitySuiteListAnyAppend",
             display_name="List Any (Append)",
             category="Utility Suite/Utilities",
-            description="Appends one arbitrary value to a new or existing Comfy list without interpreting it.",
+            description="Extends an accumulated Comfy list with incoming list items without interpreting them.",
             is_input_list=True,
             inputs=[
                 io.AnyType.Input("any_1"),
@@ -37,5 +31,4 @@ class ListAnyAppend(io.ComfyNode):
 
     @classmethod
     def execute(cls, any_1: list[Any], any_2: list[Any]) -> io.NodeOutput:
-        accumulator = None if not any_1 or (len(any_1) == 1 and any_1[0] is None) else list(any_1)
-        return io.NodeOutput(append_any(accumulator, _unwrap_new_item(any_2)))
+        return io.NodeOutput(extend_comfy_items(any_1, any_2))
