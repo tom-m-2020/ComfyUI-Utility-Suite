@@ -15,6 +15,7 @@ from .list_accumulator import ListAccumulatorAppend, ListAccumulatorToList
 from .list_any import ListAnyAppend
 from .mask_bbox import MaskToBoundingBox
 from .mask_list import MaskFromList
+from .segs_bbox import SEGSToBBOX
 from .tiling import ImageTileBatch, ImageUntileBatch
 
 
@@ -32,6 +33,7 @@ class UtilitySuiteExtension(ComfyExtension):
             ListAccumulatorToList,
             MaskFromList,
             MaskToBoundingBox,
+            SEGSToBBOX,
             PipeSetAny,
             PipeSetList,
             PipeGetAny,
