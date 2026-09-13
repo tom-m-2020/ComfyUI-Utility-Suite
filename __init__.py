@@ -9,6 +9,7 @@ from .any_pipe import (
     PipeSetList,
     PipeToEditAny,
 )
+from .bbox_transport import BBOXCollectionToList, BBOXListToCollection
 from .image_batch import ImageBatchToImageList, ImageListToImageBatch
 from .input_kind import ListBatchInspector
 from .list_accumulator import ListAccumulatorAppend, ListAccumulatorToList
@@ -40,6 +41,8 @@ class UtilitySuiteExtension(ComfyExtension):
             PipeGetList,
             PipeToEditAny,
             PipeFromAny,
+            BBOXListToCollection,
+            BBOXCollectionToList,
         ]
 
 
