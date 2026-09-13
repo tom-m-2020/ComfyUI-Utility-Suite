@@ -15,6 +15,7 @@ from .input_kind import ListBatchInspector
 from .list_accumulator import ListAccumulatorAppend, ListAccumulatorToList
 from .list_any import ListAnyAppend
 from .mask_batch import MaskToMaskBatch
+from .mask_batch_combine import MaskBatchToMask
 from .mask_bbox import MaskToBoundingBox
 from .mask_list import MaskFromList
 from .segs_bbox import SEGSToBBOX
@@ -36,6 +37,7 @@ class UtilitySuiteExtension(ComfyExtension):
             MaskFromList,
             MaskToBoundingBox,
             MaskToMaskBatch,
+            MaskBatchToMask,
             SEGSToBBOX,
             PipeSetAny,
             PipeSetList,
