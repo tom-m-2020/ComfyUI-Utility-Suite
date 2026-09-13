@@ -9,6 +9,7 @@ from .any_pipe import (
     PipeSetList,
     PipeToEditAny,
 )
+from .bbox_coordinates import BBOXCoordinates
 from .bbox_transport import BBOXCollectionToList, BBOXListToCollection
 from .image_batch import ImageBatchToImageList, ImageListToImageBatch
 from .input_kind import ListBatchInspector
@@ -47,6 +48,7 @@ class UtilitySuiteExtension(ComfyExtension):
             PipeFromAny,
             BBOXListToCollection,
             BBOXCollectionToList,
+            BBOXCoordinates,
         ]
 
 
