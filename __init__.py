@@ -21,6 +21,7 @@ from .mask_bbox import MaskToBoundingBox
 from .mask_draw import MaskDraw
 from .mask_fill_combined import MaskFillCombined
 from .mask_list import MaskFromList
+from .mask_tile_segs import MaskToTileSEGS
 from .segs_bbox import SEGSToBBOX
 from .tiling import ImageTileBatch, ImageUntileBatch
 
@@ -43,6 +44,7 @@ class UtilitySuiteExtension(ComfyExtension):
             MaskBatchToMask,
             MaskFillCombined,
             MaskDraw,
+            MaskToTileSEGS,
             SEGSToBBOX,
             PipeSetAny,
             PipeSetList,

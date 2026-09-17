@@ -89,6 +89,7 @@ class ImageBatchListTests(unittest.TestCase):
             "UtilitySuiteMaskBatchToMask",
             "UtilitySuiteMaskFillCombined",
             "UtilitySuiteMaskDraw",
+            "UtilitySuiteMaskToTileSEGS",
                 "UtilitySuiteSEGSToBBOX",
                 "UtilitySuiteBBOXListToCollection",
             "UtilitySuiteBBOXCollectionToList",
