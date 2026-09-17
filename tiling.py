@@ -51,13 +51,17 @@ class SpatialTileRecord:
 
 @dataclass(frozen=True)
 class RequestedTileParameters:
-    mode: Literal["fixed_tile", "bounded_grid"]
+    mode: Literal["fixed_tile", "bounded_grid", "uniform_grid"]
     tile_width: int
     tile_height: int
-    overlap_x: int
-    overlap_y: int
-    max_columns: int
-    max_rows: int
+    overlap_x: int | None = None
+    overlap_y: int | None = None
+    max_columns: int | None = None
+    max_rows: int | None = None
+    min_overlap_x: int | None = None
+    min_overlap_y: int | None = None
+    min_columns: int | None = None
+    min_rows: int | None = None
 
 
 @dataclass(frozen=True)
@@ -71,7 +75,7 @@ class TileLayout:
     tile_tensor_width: int
     rows: int
     columns: int
-    geometry_mode: Literal["fixed_tile", "bounded_grid"]
+    geometry_mode: Literal["fixed_tile", "bounded_grid", "uniform_grid"]
     requested_parameters: RequestedTileParameters
     spatial_records: tuple[SpatialTileRecord, ...]
     order: str = LAYOUT_ORDER
@@ -103,6 +107,16 @@ def _validate_requested_overlap(tile_length: int, overlap: int, axis: str) -> No
         )
 
 
+def _validate_minimum_overlap(tile_length: int, overlap: int, axis: str) -> None:
+    if overlap < 0:
+        raise ValueError(f"min_overlap_{axis} must be nonnegative, got {overlap}.")
+    if overlap >= tile_length:
+        raise ValueError(
+            f"min_overlap_{axis} must be smaller than tile_"
+            f"{'width' if axis == 'x' else 'height'} ({tile_length}), got {overlap}."
+        )
+
+
 def _fixed_count(source_length: int, tile_length: int, overlap: int) -> int:
     return max(1, _ceil_div(source_length - overlap, tile_length - overlap))
 
@@ -126,6 +140,49 @@ def _axis_overlap(starts: tuple[int, ...], tile_length: int, index: int) -> tupl
     return left, right
 
 
+def _uniform_axis(
+    source_length: int,
+    tile_length: int,
+    min_overlap: int,
+    min_count: int,
+    axis: str,
+) -> tuple[int, tuple[int, ...]]:
+    _validate_minimum_overlap(tile_length, min_overlap, axis)
+    if min_count <= 0:
+        raise ValueError(f"min_{'columns' if axis == 'x' else 'rows'} must be positive, got {min_count}.")
+
+    if source_length <= tile_length:
+        if min_count > 1:
+            relation = "equal to" if source_length == tile_length else "smaller than"
+            raise ValueError(
+                f"Source axis {axis} is {relation} its tile length, so only one distinct tile position exists; "
+                f"requested minimum count is {min_count}."
+            )
+        return 1, (0,)
+
+    coverage_count = _fixed_count(source_length, tile_length, min_overlap)
+    count = max(coverage_count, min_count)
+    span = source_length - tile_length
+    if count > span + 1:
+        raise ValueError(
+            f"uniform_grid axis {axis} requires {count} distinct starts but only {span + 1} are possible."
+        )
+
+    gap_count = count - 1
+    starts = tuple((index * span + gap_count // 2) // gap_count for index in range(count))
+    if starts[0] != 0 or starts[-1] != span:
+        raise ValueError(f"uniform_grid axis {axis} did not reach its exact source boundaries.")
+    if any(current <= previous for previous, current in pairwise(starts)):
+        raise ValueError(f"uniform_grid axis {axis} positions are not strictly increasing.")
+    strides = tuple(current - previous for previous, current in pairwise(starts))
+    if max(strides) - min(strides) > 1:
+        raise ValueError(f"uniform_grid axis {axis} strides are not balanced to within one pixel.")
+    actual_overlaps = tuple(tile_length - stride for stride in strides)
+    if any(overlap < min_overlap for overlap in actual_overlaps):
+        raise ValueError(f"uniform_grid axis {axis} failed its requested minimum overlap.")
+    return count, starts
+
+
 def build_tile_layout(
     image_shape: tuple[int, ...],
     mode: str,
@@ -135,6 +192,10 @@ def build_tile_layout(
     overlap_y: int,
     max_columns: int,
     max_rows: int,
+    min_overlap_x: int = 0,
+    min_overlap_y: int = 0,
+    min_columns: int = 1,
+    min_rows: int = 1,
 ) -> TileLayout:
     if len(image_shape) != 4:
         raise ValueError(f"Image Tile Batch expects rank-4 IMAGE [B,H,W,C], got shape {image_shape}.")
@@ -142,34 +203,56 @@ def build_tile_layout(
     batch, source_height, source_width, channels = image_shape
     if min(batch, source_height, source_width, channels) <= 0:
         raise ValueError(f"Image Tile Batch requires nonempty dimensions, got shape {image_shape}.")
-    if mode not in ("fixed_tile", "bounded_grid"):
+    if mode not in ("fixed_tile", "bounded_grid", "uniform_grid"):
         raise ValueError(f"Unsupported tiling mode {mode!r}.")
     if tile_width <= 0 or tile_height <= 0:
         raise ValueError("tile_width and tile_height must be positive.")
-    if max_columns <= 0 or max_rows <= 0:
-        raise ValueError("max_columns and max_rows must be positive.")
-
-    _validate_requested_overlap(tile_width, overlap_x, "x")
-    _validate_requested_overlap(tile_height, overlap_y, "y")
-
-    preferred_columns = _fixed_count(source_width, tile_width, overlap_x)
-    preferred_rows = _fixed_count(source_height, tile_height, overlap_y)
-
-    if mode == "fixed_tile":
-        columns = preferred_columns
-        rows = preferred_rows
+    if mode == "uniform_grid":
+        columns, x_starts = _uniform_axis(source_width, tile_width, min_overlap_x, min_columns, "x")
+        rows, y_starts = _uniform_axis(source_height, tile_height, min_overlap_y, min_rows, "y")
         exact_width = tile_width
         exact_height = tile_height
+        requested = RequestedTileParameters(
+            mode=mode,
+            tile_width=tile_width,
+            tile_height=tile_height,
+            min_overlap_x=min_overlap_x,
+            min_overlap_y=min_overlap_y,
+            min_columns=min_columns,
+            min_rows=min_rows,
+        )
     else:
-        columns = min(preferred_columns, max_columns)
-        rows = min(preferred_rows, max_rows)
-        exact_width = _ceil_div(source_width + overlap_x * (columns - 1), columns)
-        exact_height = _ceil_div(source_height + overlap_y * (rows - 1), rows)
-        _validate_requested_overlap(exact_width, overlap_x, "x")
-        _validate_requested_overlap(exact_height, overlap_y, "y")
+        if max_columns <= 0 or max_rows <= 0:
+            raise ValueError("max_columns and max_rows must be positive.")
+        _validate_requested_overlap(tile_width, overlap_x, "x")
+        _validate_requested_overlap(tile_height, overlap_y, "y")
+        preferred_columns = _fixed_count(source_width, tile_width, overlap_x)
+        preferred_rows = _fixed_count(source_height, tile_height, overlap_y)
 
-    x_starts = _axis_starts(source_width, exact_width, overlap_x, columns)
-    y_starts = _axis_starts(source_height, exact_height, overlap_y, rows)
+        if mode == "fixed_tile":
+            columns = preferred_columns
+            rows = preferred_rows
+            exact_width = tile_width
+            exact_height = tile_height
+        else:
+            columns = min(preferred_columns, max_columns)
+            rows = min(preferred_rows, max_rows)
+            exact_width = _ceil_div(source_width + overlap_x * (columns - 1), columns)
+            exact_height = _ceil_div(source_height + overlap_y * (rows - 1), rows)
+            _validate_requested_overlap(exact_width, overlap_x, "x")
+            _validate_requested_overlap(exact_height, overlap_y, "y")
+
+        x_starts = _axis_starts(source_width, exact_width, overlap_x, columns)
+        y_starts = _axis_starts(source_height, exact_height, overlap_y, rows)
+        requested = RequestedTileParameters(
+            mode=mode,
+            tile_width=tile_width,
+            tile_height=tile_height,
+            overlap_x=overlap_x,
+            overlap_y=overlap_y,
+            max_columns=max_columns,
+            max_rows=max_rows,
+        )
     if len(x_starts) != columns or len(y_starts) != rows:
         raise ValueError("Resolved grid count does not match its tile positions.")
 
@@ -192,15 +275,6 @@ def build_tile_layout(
                 )
             )
 
-    requested = RequestedTileParameters(
-        mode=mode,
-        tile_width=tile_width,
-        tile_height=tile_height,
-        overlap_x=overlap_x,
-        overlap_y=overlap_y,
-        max_columns=max_columns,
-        max_rows=max_rows,
-    )
     layout = TileLayout(
         version=LAYOUT_VERSION,
         source_batch_size=batch,
@@ -228,10 +302,27 @@ def validate_tile_layout(layout: TileLayout) -> None:
         raise ValueError(f"Unsupported TILE_LAYOUT order {layout.order!r}.")
     if layout.merge_policy not in SUPPORTED_LAYOUT_POLICIES:
         raise ValueError(f"Unsupported TILE_LAYOUT compatibility policy {layout.merge_policy!r}.")
-    if layout.geometry_mode not in ("fixed_tile", "bounded_grid"):
+    if layout.geometry_mode not in ("fixed_tile", "bounded_grid", "uniform_grid"):
         raise ValueError(f"Invalid layout geometry mode {layout.geometry_mode!r}.")
     if layout.requested_parameters.mode != layout.geometry_mode:
         raise ValueError("Layout mode disagrees with requested parameters.")
+    if layout.geometry_mode == "uniform_grid":
+        requested = layout.requested_parameters
+        minimums = (
+            requested.min_overlap_x,
+            requested.min_overlap_y,
+            requested.min_columns,
+            requested.min_rows,
+        )
+        if any(value is None for value in minimums):
+            raise ValueError("uniform_grid layout is missing its requested minimum geometry parameters.")
+        if (layout.tile_tensor_width, layout.tile_tensor_height) != (
+            requested.tile_width,
+            requested.tile_height,
+        ):
+            raise ValueError("uniform_grid layout does not preserve its requested fixed tile dimensions.")
+        if layout.columns < requested.min_columns or layout.rows < requested.min_rows:
+            raise ValueError("uniform_grid layout does not satisfy its requested minimum grid count.")
     if min(
         layout.source_batch_size,
         layout.source_height,
@@ -297,6 +388,12 @@ def validate_tile_layout(layout: TileLayout) -> None:
             raise ValueError(
                 f"Tile ({record.row}, {record.column}) recorded neighbor overlaps do not match its rectangles."
             )
+        if layout.geometry_mode == "uniform_grid":
+            requested = layout.requested_parameters
+            if record.column > 0 and overlaps.left < requested.min_overlap_x:
+                raise ValueError("uniform_grid layout violates its requested minimum X overlap.")
+            if record.row > 0 and overlaps.top < requested.min_overlap_y:
+                raise ValueError("uniform_grid layout violates its requested minimum Y overlap.")
 
 
 def tile_image_batch(image: torch.Tensor, layout: TileLayout) -> torch.Tensor:
@@ -711,13 +808,17 @@ class ImageTileBatch(io.ComfyNode):
             description="Splits an IMAGE into a source-major ordinary IMAGE batch with explicit layout metadata.",
             inputs=[
                 io.Image.Input("image"),
-                io.Combo.Input("mode", options=["fixed_tile", "bounded_grid"]),
+                io.Combo.Input("mode", options=["fixed_tile", "bounded_grid", "uniform_grid"]),
                 io.Int.Input("tile_width", default=1024, min=1, max=32768),
                 io.Int.Input("tile_height", default=1024, min=1, max=32768),
                 io.Int.Input("overlap_x", default=128, min=0, max=16384),
                 io.Int.Input("overlap_y", default=128, min=0, max=16384),
                 io.Int.Input("max_columns", default=3, min=1, max=256),
                 io.Int.Input("max_rows", default=3, min=1, max=256),
+                io.Int.Input("min_overlap_x", default=128, min=0, max=32768),
+                io.Int.Input("min_overlap_y", default=128, min=0, max=32768),
+                io.Int.Input("min_columns", default=1, min=1, max=32768),
+                io.Int.Input("min_rows", default=1, min=1, max=32768),
             ],
             outputs=[
                 io.Image.Output(display_name="tiles"),
@@ -738,6 +839,10 @@ class ImageTileBatch(io.ComfyNode):
         overlap_y: int,
         max_columns: int,
         max_rows: int,
+        min_overlap_x: int = 128,
+        min_overlap_y: int = 128,
+        min_columns: int = 1,
+        min_rows: int = 1,
     ) -> io.NodeOutput:
         layout = build_tile_layout(
             tuple(image.shape),
@@ -748,6 +853,10 @@ class ImageTileBatch(io.ComfyNode):
             overlap_y,
             max_columns,
             max_rows,
+            min_overlap_x,
+            min_overlap_y,
+            min_columns,
+            min_rows,
         )
         tiles = tile_image_batch(image, layout)
         bboxes, bounding_boxes = tile_bounding_boxes(layout)
