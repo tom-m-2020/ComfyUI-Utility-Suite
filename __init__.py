@@ -11,6 +11,7 @@ from .any_pipe import (
 )
 from .bbox_coordinates import BBOXCoordinates
 from .bbox_transport import BBOXCollectionToList, BBOXListToCollection
+from .filter_tile_segs import FilterTileSEGS
 from .image_batch import ImageBatchToImageList, ImageListToImageBatch
 from .input_kind import ListBatchInspector
 from .list_accumulator import ListAccumulatorAppend, ListAccumulatorToList
@@ -46,6 +47,7 @@ class UtilitySuiteExtension(ComfyExtension):
             MaskDraw,
             MaskToTileSEGS,
             SEGSToBBOX,
+            FilterTileSEGS,
             PipeSetAny,
             PipeSetList,
             PipeGetAny,
