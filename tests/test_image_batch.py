@@ -93,6 +93,7 @@ class ImageBatchListTests(unittest.TestCase):
             "UtilitySuiteFilterTileSEGS",
             "UtilitySuitePreviewSEGSRegions",
             "UtilitySuiteRestoreTileSEGSGaps",
+            "UtilitySuiteReorderSEGS",
                 "UtilitySuiteSEGSToBBOX",
                 "UtilitySuiteBBOXListToCollection",
             "UtilitySuiteBBOXCollectionToList",
