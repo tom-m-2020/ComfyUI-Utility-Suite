@@ -54,11 +54,13 @@ class FilterTileSEGSTests(unittest.TestCase):
         self.assertEqual(kept[1], [item])
         self.assertEqual(excluded[1], [])
 
-    def test_one_segment_with_empty_mask_is_excluded(self):
+    def test_one_segment_with_empty_mask_is_excluded_in_both_modes(self):
         item = segment((0, 0, 5, 4), label="empty")
-        kept, excluded = partition((4, 5), [item])
-        self.assertEqual(kept[1], [])
-        self.assertEqual(excluded[1], [item])
+        for mode in ("mask", "bbox"):
+            with self.subTest(mode=mode):
+                kept, excluded = partition((4, 5), [item], mode)
+                self.assertEqual(kept[1], [])
+                self.assertEqual(excluded[1], [item])
 
     def test_three_tile_acceptance_excludes_nonempty_center(self):
         left_mask = np.zeros((4, 5), dtype=np.float32)
@@ -101,8 +103,10 @@ class FilterTileSEGSTests(unittest.TestCase):
         np.testing.assert_array_equal(item.cropped_mask, original)
 
     def test_bbox_intersects_stride_or_only_overlap(self):
-        first = segment((0, 0, 6, 4), bbox=(1, 1, 3, 3), label="stride")
-        second = segment((4, 0, 10, 4), bbox=(4, 0, 6, 4), label="overlap")
+        first = segment((0, 0, 6, 4), np.ones((4, 6), dtype=np.float32), bbox=(1, 1, 3, 3), label="stride")
+        second = segment(
+            (4, 0, 10, 4), np.ones((4, 6), dtype=np.float32), bbox=(4, 0, 6, 4), label="overlap"
+        )
         kept, excluded = partition((4, 10), [first, second], "bbox")
         self.assertEqual(kept[1], [first])
         self.assertEqual(excluded[1], [second])
@@ -193,12 +197,14 @@ class FilterTileSEGSTests(unittest.TestCase):
         self.assertEqual(kept[1], [item])
 
     def test_bbox_is_clipped_to_crop_and_canvas(self):
-        item = segment((0, 0, 5, 4), bbox=(-10, -10, 2, 2))
+        item = segment((0, 0, 5, 4), np.ones((4, 5), dtype=np.float32), bbox=(-10, -10, 2, 2))
         kept, _ = partition((4, 5), [item], "bbox")
         self.assertEqual(kept[1], [item])
 
     def test_mask_to_tile_segs_uniform_grid_interoperability(self):
-        source = torch.ones((1, 4, 16), dtype=torch.float32)
+        source = torch.zeros((1, 4, 16), dtype=torch.float32)
+        source[:, :, :4] = 1
+        source[:, :, 12:] = 1
         segs, _ = MASK_TILE.mask_to_tile_segs(
             source,
             "uniform_grid",
@@ -213,7 +219,9 @@ class FilterTileSEGSTests(unittest.TestCase):
             3,
             1,
         )
-        kept, excluded = MODULE.partition_tile_segs(segs, "mask")
+        self.assertEqual(segs[1][1].bbox, tuple(segs[1][1].crop_region))
+        self.assertEqual(np.count_nonzero(segs[1][1].cropped_mask), 0)
+        kept, excluded = MODULE.partition_tile_segs(segs, "bbox")
         self.assertEqual([entry.crop_region for entry in kept[1]], [[0, 0, 8, 4], [8, 0, 16, 4]])
         self.assertEqual([entry.crop_region for entry in excluded[1]], [[4, 0, 12, 4]])
         self.assertIs(kept[1][0], segs[1][0])
@@ -241,9 +249,17 @@ class FilterTileSEGSTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "does not match"):
             partition((4, 5), [segment(crop, np.ones((3, 5), dtype=np.float32))])
         with self.assertRaisesRegex(TypeError, "no bbox"):
-            partition((4, 5), [segment(crop)._replace(bbox=None)], "bbox")
+            partition(
+                (4, 5),
+                [segment(crop, np.ones((4, 5), dtype=np.float32))._replace(bbox=None)],
+                "bbox",
+            )
         with self.assertRaisesRegex(ValueError, "reversed"):
-            partition((4, 5), [segment(crop, bbox=(4, 0, 2, 3))], "bbox")
+            partition(
+                (4, 5),
+                [segment(crop, np.ones((4, 5), dtype=np.float32), bbox=(4, 0, 2, 3))],
+                "bbox",
+            )
 
     def test_schema_declares_two_ordinary_segs_outputs(self):
         schema = MODULE.FilterTileSEGS.define_schema()

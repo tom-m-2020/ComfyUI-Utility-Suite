@@ -107,8 +107,11 @@ def partition_tile_segs(segs: Any, mode: str) -> tuple[tuple[Any, list[Any]], tu
         local_coverage = coverage[y1:y2, x1:x2]
         local_stride = local_coverage == 1
         keep = False
+        mask = _mask_array(segment, index, y2 - y1, x2 - x1)
+        if not np.any(mask > 0):
+            excluded.append(segment)
+            continue
         if mode == "mask":
-            mask = _mask_array(segment, index, y2 - y1, x2 - x1)
             if local_stride.any():
                 keep = bool(np.any((mask > 0) & local_stride))
         else:
