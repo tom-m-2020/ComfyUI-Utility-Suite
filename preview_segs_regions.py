@@ -5,6 +5,7 @@ from typing import Any
 import numpy as np
 import torch
 from comfy_api.latest import io
+from PIL import Image, ImageDraw, ImageFont
 
 from .segs_geometry import coverage_map, integer, validated_segs
 
@@ -13,6 +14,12 @@ HATCH_PERIOD = 16
 HATCH_WIDTH = 2
 YELLOW_FILL_ALPHA = 0.22
 RED_FILL_ALPHA = 0.26
+INDEX_BLUE = (0.08, 0.32, 1.0)
+INDEX_ALPHA = 0.74
+INDEX_OUTLINE_ALPHA = 0.58
+INDEX_FONT_SCALE = 0.18
+INDEX_FONT_MIN = 12
+INDEX_FONT_MAX = 72
 
 
 def _array(value: Any, description: str) -> np.ndarray:
@@ -88,6 +95,39 @@ def _draw_boundaries(
         canvas[y1:y2, x2 - width : x2] = blue
 
 
+def _index_label_specs(
+    crop_regions: list[tuple[int, int, int, int]],
+) -> list[tuple[str, tuple[float, float], int]]:
+    specs = []
+    for index, (x1, y1, x2, y2) in enumerate(crop_regions):
+        center = ((x1 + x2) / 2, (y1 + y2) / 2)
+        size = round(min(x2 - x1, y2 - y1) * INDEX_FONT_SCALE)
+        specs.append((str(index), center, max(INDEX_FONT_MIN, min(INDEX_FONT_MAX, size))))
+    return specs
+
+
+def _draw_index_labels(canvas: np.ndarray, crop_regions: list[tuple[int, int, int, int]]) -> None:
+    height, width = canvas.shape[:2]
+    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    blue = tuple(round(channel * 255) for channel in INDEX_BLUE) + (round(INDEX_ALPHA * 255),)
+    outline = (0, 0, 0, round(INDEX_OUTLINE_ALPHA * 255))
+    for text, center, font_size in _index_label_specs(crop_regions):
+        font = ImageFont.load_default(size=font_size)
+        draw.text(
+            center,
+            text,
+            font=font,
+            anchor="mm",
+            fill=blue,
+            stroke_width=max(1, font_size // 18),
+            stroke_fill=outline,
+        )
+    pixels = np.asarray(overlay, dtype=np.float32) / 255.0
+    alpha = pixels[:, :, 3:4]
+    canvas[:] = canvas * (1.0 - alpha) + pixels[:, :, :3] * alpha
+
+
 def preview_segs_regions(
     segs: Any,
     background: str,
@@ -138,6 +178,7 @@ def preview_segs_regions(
     canvas[yellow_area & hatch] = (1.0, 1.0, 0.0)
     canvas[red_area & hatch] = (1.0, 0.0, 0.0)
     _draw_boundaries(canvas, crop_regions, line_width)
+    _draw_index_labels(canvas, crop_regions)
     return torch.from_numpy(canvas.copy()).unsqueeze(0)
 
 
