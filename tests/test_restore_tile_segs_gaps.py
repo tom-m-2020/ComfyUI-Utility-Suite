@@ -39,16 +39,32 @@ def segment(crop, label, active=True, bbox=None):
     return SEG(None, mask, 1.0, crop, crop if bbox is None else bbox, str(label), None)
 
 
+def source_segments(source_mask, crops):
+    return [
+        SEG(
+            None,
+            source_mask[y1:y2, x1:x2].copy(),
+            1.0,
+            crop,
+            crop,
+            str(index),
+            None,
+        )
+        for index, crop in enumerate(crops, 1)
+        for x1, y1, x2, y2 in [crop]
+    ]
+
+
 def restore(shape, kept, excluded, mode="mask", min_x=1, min_y=1):
     return MODULE.restore_tile_segs_gaps((shape, kept), (shape, excluded), mode, min_x, min_y)
 
 
 def acceptance_grid():
-    entries = []
-    for row, y in enumerate((0, 40, 80)):
-        for column, x in enumerate((0, 10, 20, 30, 40, 50)):
-            label = row * 6 + column + 1
-            entries.append(segment((x, y, x + 15, y + 60), label, active=label in (7, 8, 11, 12)))
+    crops = [(x, y, x + 15, y + 60) for y in (0, 40, 80) for x in (0, 10, 20, 30, 40, 50)]
+    source_mask = np.zeros((140, 65), dtype=np.float32)
+    source_mask[:, :18] = 1
+    source_mask[:, 40:] = 1
+    entries = source_segments(source_mask, crops)
     kept_labels = {1, 2, 5, 6, 13, 14, 17, 18}
     return entries, [entry for entry in entries if int(entry.label) in kept_labels], [
         entry for entry in entries if int(entry.label) not in kept_labels
@@ -81,11 +97,8 @@ class RestoreTileSEGSGapsTests(unittest.TestCase):
         self.assertEqual([entry.label for entry in result[1] if 7 <= int(entry.label) <= 12], ["7", "8", "11", "12"])
 
     def test_horizontal_missing_column_expands_complete_column(self):
-        entries = []
-        for row, y in enumerate((0, 10, 20)):
-            for column, x in enumerate((0, 40, 80)):
-                label = row * 3 + column + 1
-                entries.append(segment((x, y, x + 60, y + 15), label, active=column == 1))
+        crops = [(x, y, x + 60, y + 15) for y in (0, 10, 20) for x in (0, 40, 80)]
+        entries = source_segments(np.ones((35, 140), dtype=np.float32), crops)
         kept = [entry for entry in entries if int(entry.label) in (1, 3, 7, 9)]
         kept_ids = {id(entry) for entry in kept}
         excluded = [entry for entry in entries if id(entry) not in kept_ids]
@@ -142,23 +155,26 @@ class RestoreTileSEGSGapsTests(unittest.TestCase):
         self.assertEqual(restore((20, 20), [first, last], [diagonal], min_x=5, min_y=5)[1], [first, last])
 
     def test_mask_and_bbox_candidate_filtering_share_existing_semantics(self):
-        a = segment((0, 0, 10, 10), "a")
-        c = segment((10, 0, 20, 10), "c")
-        mask = np.zeros((10, 10), dtype=np.float32)
-        mask[:, 8:] = 1
-        b = segment((5, 0, 15, 10), "b", bbox=(5, 0, 15, 10))._replace(cropped_mask=mask)
+        source_mask = np.zeros((10, 20), dtype=np.float32)
+        source_mask[:, 9:15] = 1
+        a, b, c = source_segments(source_mask, [(0, 0, 10, 10), (5, 0, 15, 10), (10, 0, 20, 10)])
         mask_result = restore((10, 20), [a, c], [b], "mask", 1, 0)
         bbox_result = restore((10, 20), [a, c], [b], "bbox", 1, 0)
         self.assertTrue(any(entry is b for entry in mask_result[1]))
         self.assertTrue(any(entry is b for entry in bbox_result[1]))
 
     def test_candidates_can_all_fail_or_all_survive(self):
-        a = segment((0, 0, 10, 10), "a")
-        c = segment((16, 0, 26, 10), "c")
-        failed = [segment((6, 0, 16, 10), "b", active=False)]
-        passed = [segment((6, 0, 16, 10), "b", active=True)]
-        self.assertEqual(restore((10, 26), [a, c], failed, min_x=1, min_y=0)[1], [a, c])
-        self.assertEqual(restore((10, 26), [a, c], passed, min_x=1, min_y=0)[1], [a, passed[0], c])
+        crops = [(0, 0, 10, 10), (6, 0, 16, 10), (16, 0, 26, 10)]
+        failed_entries = source_segments(np.zeros((10, 26), dtype=np.float32), crops)
+        passed_entries = source_segments(np.ones((10, 26), dtype=np.float32), crops)
+        self.assertEqual(
+            restore((10, 26), [failed_entries[0], failed_entries[2]], [failed_entries[1]], min_x=1, min_y=0)[1],
+            [failed_entries[0], failed_entries[2]],
+        )
+        self.assertEqual(
+            restore((10, 26), [passed_entries[0], passed_entries[2]], [passed_entries[1]], min_x=1, min_y=0)[1],
+            passed_entries,
+        )
 
     def test_no_problem_empty_excluded_and_empty_kept(self):
         a = segment((0, 0, 10, 10), "a")
@@ -172,6 +188,66 @@ class RestoreTileSEGSGapsTests(unittest.TestCase):
         items = [segment((x, 0, x + 12, 10), str(index)) for index, x in enumerate((0, 5, 11), 1)]
         result = restore((10, 23), [items[0], items[2]], [items[1]], min_x=2, min_y=0)
         self.assertEqual(result[1], items)
+
+    def test_connection_regions_cover_overlap_contact_and_gap_deficits(self):
+        self.assertEqual(MODULE._connection_region((0, 0, 10, 10), (8, 0, 18, 10), 0, 4, (10, 18)), (8, 0, 10, 10))
+        self.assertEqual(MODULE._connection_region((0, 0, 10, 10), (10, 0, 20, 10), 0, 4, (10, 20)), (8, 0, 12, 10))
+        self.assertEqual(MODULE._connection_region((0, 0, 10, 10), (16, 0, 26, 10), 0, 4, (10, 26)), (8, 0, 18, 10))
+
+    def test_connection_gate_uses_exact_positive_semantics(self):
+        region = (1, 1, 3, 3)
+        for value in (np.nextafter(np.float32(0), np.float32(1)), 0.01, 0.5, 0.99, 1.0):
+            with self.subTest(value=float(value)):
+                mask = np.zeros((4, 4), dtype=np.float32)
+                mask[1, 1] = value
+                self.assertTrue(MODULE._connection_has_paintable_mask(mask, region))
+        self.assertFalse(MODULE._connection_has_paintable_mask(np.zeros((4, 4), dtype=np.float32), region))
+
+    def test_unrelated_zero_outside_connection_does_not_suppress_repair(self):
+        source_mask = np.zeros((10, 20), dtype=np.float32)
+        source_mask[:, 8:12] = 0.5
+        entries = source_segments(source_mask, [(0, 0, 10, 10), (5, 0, 15, 10), (10, 0, 20, 10)])
+        result = restore((10, 20), [entries[0], entries[2]], [entries[1]], min_x=4, min_y=0)
+        self.assertEqual(result[1], entries)
+
+    def test_all_zero_connection_suppresses_direct_and_expanded_candidates(self):
+        source_mask = np.ones((30, 30), dtype=np.float32)
+        source_mask[:, 8:22] = 0
+        crops = [(0, y, 10, y + 10) for y in (0, 10, 20)] + [
+            (10, y, 20, y + 10) for y in (0, 10, 20)
+        ] + [(20, y, 30, y + 10) for y in (0, 10, 20)]
+        entries = source_segments(source_mask, crops)
+        kept = [entries[0], entries[2], entries[6], entries[8]]
+        excluded = [entry for entry in entries if not any(entry is item for item in kept)]
+        result = restore((30, 30), kept, excluded, min_x=4, min_y=0)
+        self.assertEqual(result[1], [entries[0], entries[6], entries[2], entries[8]])
+
+    def test_audited_eighteen_tile_mask_gate_produces_twelve(self):
+        height, width = 1024, 2048
+        source_mask = np.zeros((height, width), dtype=np.float32)
+        source_mask[:, :696] = 1
+        source_mask[:, 1352:] = 1
+        crops = [
+            (x, y, x + 512, y + 512)
+            for y in (0, 256, 512)
+            for x in (0, 307, 614, 922, 1229, 1536)
+        ]
+        entries = source_segments(source_mask, crops)
+        kept_indices = {1, 2, 5, 6, 13, 14, 17, 18}
+        kept = [entry for index, entry in enumerate(entries, 1) if index in kept_indices]
+        excluded = [entry for index, entry in enumerate(entries, 1) if index not in kept_indices]
+        result = restore((height, width), kept, excluded, min_x=204, min_y=204)
+        self.assertEqual(
+            [int(entry.label) for entry in result[1]],
+            [1, 2, 5, 6, 7, 8, 11, 12, 13, 14, 17, 18],
+        )
+
+    def test_conflicting_overlap_masks_fail_clearly(self):
+        a = segment((0, 0, 10, 10), "a", active=True)
+        b = segment((5, 0, 15, 10), "b", active=False)
+        c = segment((10, 0, 20, 10), "c", active=True)
+        with self.assertRaisesRegex(ValueError, "identical source-mask values"):
+            restore((10, 20), [a, c], [b], min_x=1, min_y=0)
 
     def test_order_and_identity_are_geometry_reconstructed(self):
         a = segment((0, 0, 10, 10), "a")

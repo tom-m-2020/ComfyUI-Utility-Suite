@@ -4,9 +4,10 @@ from collections import defaultdict
 from itertools import pairwise
 from typing import Any
 
+import numpy as np
 from comfy_api.latest import io
 
-from .filter_tile_segs import partition_tile_segs
+from .filter_tile_segs import _mask_array, partition_tile_segs
 from .segs_geometry import integer, validated_segs
 
 SEGS = io.Custom("SEGS")
@@ -21,6 +22,60 @@ def _axis_overlap(first: tuple[int, int, int, int], second: tuple[int, int, int,
 def _geometry_order(item: tuple[Any, tuple[int, int, int, int]]) -> tuple[int, int, int, int]:
     _, (x1, y1, x2, y2) = item
     return y1, x1, y2, x2
+
+
+def _connection_region(
+    first: tuple[int, int, int, int],
+    second: tuple[int, int, int, int],
+    axis: int,
+    required_overlap: int,
+    source_shape: tuple[int, int],
+) -> tuple[int, int, int, int]:
+    actual_overlap = _axis_overlap(first, second, axis)
+    deficit = required_overlap - actual_overlap
+    height, width = source_shape
+    if axis == 0:
+        x1 = (first[2] + second[0] - deficit) // 2
+        x2 = x1 + deficit
+        return max(0, x1), max(first[1], second[1]), min(width, x2), min(first[3], second[3])
+    y1 = (first[3] + second[1] - deficit) // 2
+    y2 = y1 + deficit
+    return max(first[0], second[0]), max(0, y1), min(first[2], second[2]), min(height, y2)
+
+
+def _source_mask(
+    source_shape: tuple[int, int],
+    original: list[tuple[Any, tuple[int, int, int, int]]],
+) -> np.ndarray:
+    height, width = source_shape
+    mask_canvas = np.full((height, width), np.nan, dtype=np.float32)
+    for index, (entry, (x1, y1, x2, y2)) in enumerate(original):
+        mask = _mask_array(entry, index, y2 - y1, x2 - x1).astype(np.float32, copy=False)
+        target = mask_canvas[y1:y2, x1:x2]
+        populated = ~np.isnan(target)
+        if populated.any() and not np.array_equal(target[populated], mask[populated]):
+            raise ValueError(
+                "Restore Tile SEGS Gaps requires overlapping cropped masks to contain identical "
+                "source-mask values."
+            )
+        target[~populated] = mask[~populated]
+    return mask_canvas
+
+
+def _connection_has_paintable_mask(
+    source_mask: np.ndarray,
+    region: tuple[int, int, int, int],
+) -> bool:
+    x1, y1, x2, y2 = region
+    if x1 >= x2 or y1 >= y2:
+        raise ValueError(f"Restore Tile SEGS Gaps produced an empty connection region {region}.")
+    values = source_mask[y1:y2, x1:x2]
+    if np.isnan(values).any():
+        raise ValueError(
+            "Restore Tile SEGS Gaps cannot evaluate a connection region not fully represented "
+            "by the input SEGS masks."
+        )
+    return bool(np.any(values > 0))
 
 
 def restore_tile_segs_gaps(
@@ -62,6 +117,8 @@ def restore_tile_segs_gaps(
     if len(set(crop_keys)) != len(crop_keys):
         raise ValueError("Restore Tile SEGS Gaps cannot reconstruct ordering with duplicate crop_regions.")
     original.sort(key=_geometry_order)
+    normalized_shape = (integer(source_shape[0], "SEGS source height"), integer(source_shape[1], "SEGS source width"))
+    source_mask = _source_mask(normalized_shape, original) if min_overlap_x > 0 or min_overlap_y > 0 else None
 
     rows: dict[tuple[int, int], list[tuple[Any, tuple[int, int, int, int]]]] = defaultdict(list)
     columns: dict[tuple[int, int], list[tuple[Any, tuple[int, int, int, int]]]] = defaultdict(list)
@@ -88,7 +145,13 @@ def restore_tile_segs_gaps(
             intermediates = sequence[first_pos + 1 : second_pos]
             if not intermediates:
                 continue
-            if _axis_overlap(sequence[first_pos][1], sequence[second_pos][1], axis) >= required_overlap:
+            first_crop = sequence[first_pos][1]
+            second_crop = sequence[second_pos][1]
+            if _axis_overlap(first_crop, second_crop, axis) >= required_overlap:
+                continue
+            connection = _connection_region(first_crop, second_crop, axis, required_overlap, normalized_shape)
+            assert source_mask is not None
+            if not _connection_has_paintable_mask(source_mask, connection):
                 continue
             for entry, crop in intermediates:
                 if id(entry) not in excluded_ids:
