@@ -26,6 +26,7 @@ from .mask_tile_segs import MaskToTileSEGS
 from .preview_segs_regions import PreviewSEGSRegions
 from .reorder_segs import ReorderSEGS
 from .restore_tile_segs_gaps import RestoreTileSEGSGaps
+from .seg_from_segs import SEGFromSEGS
 from .segs_bbox import SEGSToBBOX
 from .tiling import ImageTileBatch, ImageUntileBatch
 
@@ -54,6 +55,7 @@ class UtilitySuiteExtension(ComfyExtension):
             PreviewSEGSRegions,
             RestoreTileSEGSGaps,
             ReorderSEGS,
+            SEGFromSEGS,
             PipeSetAny,
             PipeSetList,
             PipeGetAny,
