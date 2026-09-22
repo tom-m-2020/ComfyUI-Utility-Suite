@@ -14,6 +14,7 @@ from .bbox_transport import BBOXCollectionToList, BBOXListToCollection
 from .filter_tile_segs import FilterTileSEGS
 from .image_batch import ImageBatchToImageList, ImageListToImageBatch
 from .input_kind import ListBatchInspector
+from .invert_mask_segs import InvertMaskSEGS
 from .list_accumulator import ListAccumulatorAppend, ListAccumulatorToList
 from .list_any import ListAnyAppend
 from .mask_batch import MaskToMaskBatch
@@ -41,6 +42,7 @@ class UtilitySuiteExtension(ComfyExtension):
             ImageListToImageBatch,
             ImageBatchToImageList,
             ListBatchInspector,
+            InvertMaskSEGS,
             ListAnyAppend,
             ListAccumulatorAppend,
             ListAccumulatorToList,
