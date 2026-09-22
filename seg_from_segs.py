@@ -4,13 +4,17 @@ from typing import Any
 
 from comfy_api.latest import io
 
-from .segs_geometry import integer, validated_segs
+from .segs_geometry import integer
 
 SEGS = io.Custom("SEGS")
 
 
 def seg_from_segs(segs: Any, index: int, length: int) -> tuple[Any, list[Any]]:
-    header, entries, _ = validated_segs(segs, "SEG From SEGS")
+    if not isinstance(segs, (list, tuple)) or len(segs) != 2:
+        raise TypeError("SEG From SEGS expects SEGS shaped as (header, segment_entries).")
+    header, entries = segs
+    if not isinstance(entries, (list, tuple)):
+        raise TypeError("SEG From SEGS segment entries must be a list or tuple.")
     index = integer(index, "index")
     length = integer(length, "length")
     if index < 0:

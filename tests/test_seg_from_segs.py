@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import importlib.util
 import sys
 import unittest
@@ -22,6 +23,17 @@ sys.modules[SPEC.name] = PACKAGE
 SPEC.loader.exec_module(PACKAGE)
 MODULE = sys.modules[f"{SPEC.name}.seg_from_segs"]
 MASK_TILE = sys.modules[f"{SPEC.name}.mask_tile_segs"]
+IMPACT_ROOT = COMFY_ROOT / "custom_nodes" / "ComfyUI-Impact-Pack" / "modules" / "impact"
+
+
+def impact_class(filename, name):
+    source_path = IMPACT_ROOT / filename
+    tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
+    class_node = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == name)
+    namespace = {"any_typ": "*"}
+    # Execute only the installed Impact node class, avoiding its package-wide optional imports.
+    exec(compile(ast.Module(body=[class_node], type_ignores=[]), str(source_path), "exec"), namespace)  # noqa: S102
+    return namespace[name]
 
 SEG = namedtuple(
     "SEG",
@@ -71,6 +83,46 @@ class SEGFromSEGSTests(unittest.TestCase):
         self.assertEqual(len(result[1]), 1)
         self.assertIs(result[1][0], self.entries[-1])
 
+    def test_impact_decompose_select_assemble_equivalence(self):
+        decompose = impact_class("segs_nodes.py", "DecomposeSEGS")()
+        select = impact_class("util_nodes.py", "NthItemOfAnyList")()
+        assemble = impact_class("segs_nodes.py", "AssembleSEGS")()
+        image_b = torch.rand((1, 10, 10, 3))
+        image_c = torch.rand((1, 10, 10, 3))
+        mask_a = np.eye(10, dtype=np.float32)
+        mask_b = np.linspace(0, 1, 100, dtype=np.float32).reshape(10, 10)
+        mask_c = np.linspace(1, 0, 100, dtype=np.float32).reshape(10, 10)
+        entries = [
+            SEG(None, mask_a, 0.1, (0, 0, 10, 10), (2, 2, 8, 8), "A", object()),
+            SEG(image_b, mask_b, 0.5, (10, 0, 20, 10), (11, 1, 19, 9), "B", object()),
+            SEG(image_c, mask_c, 0.9, (20, 0, 30, 10), (21, 1, 29, 9), "C", object()),
+        ]
+        header = (1024, 2048)
+        original = (header, entries)
+        impact_header, impact_entries = decompose.doit(original)
+        for index in range(3):
+            selected = select.doit(impact_entries, [index])[0]
+            reference = assemble.doit([impact_header], [selected])[0]
+            actual = MODULE.seg_from_segs(original, index, 1)
+            self.assertIs(actual[0], reference[0])
+            self.assertEqual(len(actual[1]), 1)
+            self.assertIs(actual[1][0], reference[1][0])
+            for field in SEG._fields:
+                self.assertIs(getattr(actual[1][0], field), getattr(reference[1][0], field))
+        self.assertIsNone(MODULE.seg_from_segs(original, 0, 1)[1][0].cropped_image)
+        self.assertIs(MODULE.seg_from_segs(original, 1, 1)[1][0].cropped_image, image_b)
+        self.assertIs(MODULE.seg_from_segs(original, 1, 1)[1][0].cropped_mask, mask_b)
+        extended = MODULE.seg_from_segs(original, 1, 2)
+        self.assertIs(extended[1][0], entries[1])
+        self.assertIs(extended[1][1], entries[2])
+
+    def test_impact_out_of_range_selects_last_and_empty_reference_errors(self):
+        select = impact_class("util_nodes.py", "NthItemOfAnyList")()
+        self.assertIs(select.doit(self.entries, [999])[0], self.entries[-1])
+        self.assertIs(MODULE.seg_from_segs(self.segs, 999, 1)[1][0], self.entries[-1])
+        with self.assertRaises(IndexError):
+            select.doit([], [0])
+
     def test_header_and_selected_object_identity_are_preserved(self):
         result = MODULE.seg_from_segs(self.segs, 2, 2)
         self.assertIs(result[0], self.header)
@@ -116,6 +168,13 @@ class SEGFromSEGSTests(unittest.TestCase):
         result = MODULE.seg_from_segs((header, []), 100, 5)
         self.assertIs(result[0], header)
         self.assertEqual(result[1], [])
+
+    def test_unselected_malformed_geometry_is_not_inspected(self):
+        malformed = SEG(None, np.zeros((1, 1)), 0.2, None, None, "unselected", None)
+        entries = [self.entries[0], malformed]
+        result = MODULE.seg_from_segs((self.header, entries), 0, 1)
+        self.assertIs(result[1][0], self.entries[0])
+        self.assertIsNone(entries[1].crop_region)
 
     def test_invalid_range_and_structure_fail_clearly(self):
         with self.assertRaisesRegex(ValueError, "nonnegative"):
