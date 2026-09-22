@@ -28,6 +28,7 @@ from .reorder_segs import ReorderSEGS
 from .restore_tile_segs_gaps import RestoreTileSEGSGaps
 from .seg_from_segs import SEGFromSEGS
 from .segs_bbox import SEGSToBBOX
+from .segs_overlap_to_mask import SEGSOverlapToMASK
 from .tiling import ImageTileBatch, ImageUntileBatch
 
 
@@ -56,6 +57,7 @@ class UtilitySuiteExtension(ComfyExtension):
             RestoreTileSEGSGaps,
             ReorderSEGS,
             SEGFromSEGS,
+            SEGSOverlapToMASK,
             PipeSetAny,
             PipeSetList,
             PipeGetAny,
