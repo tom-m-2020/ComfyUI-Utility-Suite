@@ -11,6 +11,7 @@ from .any_pipe import (
 )
 from .bbox_coordinates import BBOXCoordinates
 from .bbox_transport import BBOXCollectionToList, BBOXListToCollection
+from .combine_masks_segs import CombineMasksSEGSAndMASK, CombineMasksSEGSAndSEGS
 from .filter_tile_segs import FilterTileSEGS
 from .image_batch import ImageBatchToImageList, ImageListToImageBatch
 from .input_kind import ListBatchInspector
@@ -39,6 +40,8 @@ class UtilitySuiteExtension(ComfyExtension):
         return [
             ImageTileBatch,
             ImageUntileBatch,
+            CombineMasksSEGSAndMASK,
+            CombineMasksSEGSAndSEGS,
             ImageListToImageBatch,
             ImageBatchToImageList,
             ListBatchInspector,
