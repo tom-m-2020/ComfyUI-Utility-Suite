@@ -5,6 +5,22 @@ import torch
 from comfy_api.latest import io
 
 
+def nonzero_mask_bounds(mask: torch.Tensor) -> tuple[int, int, int, int] | None:
+    if mask.ndim not in (2, 3):
+        raise ValueError(f"Mask bounds require rank-2 or rank-3 MASK, got shape {tuple(mask.shape)}.")
+    coordinates = torch.nonzero(mask, as_tuple=False)
+    if coordinates.numel() == 0:
+        return None
+    y_column = mask.ndim - 2
+    x_column = mask.ndim - 1
+    return (
+        int(coordinates[:, x_column].min().item()),
+        int(coordinates[:, y_column].min().item()),
+        int(coordinates[:, x_column].max().item()) + 1,
+        int(coordinates[:, y_column].max().item()) + 1,
+    )
+
+
 def mask_bounding_box(
     mask: torch.Tensor,
     padding: int,
@@ -19,15 +35,16 @@ def mask_bounding_box(
     if padding < 0:
         raise ValueError(f"padding must be nonnegative, got {padding}.")
 
-    coordinates = torch.nonzero(mask, as_tuple=False)
-    if coordinates.numel() == 0:
+    bounds = nonzero_mask_bounds(mask)
+    if bounds is None:
         raise ValueError("Mask to Bounding Box requires at least one nonzero mask pixel.")
 
     source_height, source_width = mask.shape[1:]
-    x0 = max(0, int(coordinates[:, 2].min().item()) - padding)
-    y0 = max(0, int(coordinates[:, 1].min().item()) - padding)
-    x1 = min(source_width, int(coordinates[:, 2].max().item()) + 1 + padding)
-    y1 = min(source_height, int(coordinates[:, 1].max().item()) + 1 + padding)
+    bx0, by0, bx1, by1 = bounds
+    x0 = max(0, bx0 - padding)
+    y0 = max(0, by0 - padding)
+    x1 = min(source_width, bx1 + padding)
+    y1 = min(source_height, by1 + padding)
 
     if image is None:
         image = mask.unsqueeze(-1).repeat(1, 1, 1, 3)
