@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 import torch
+from torch.nn import functional
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 COMFY_ROOT = Path(r"C:\Users\Tom-M\data\a\ai\apps\ComfyUI-dev")
@@ -20,7 +21,7 @@ sys.modules[SPEC.name] = PACKAGE
 SPEC.loader.exec_module(PACKAGE)
 MODULE = sys.modules[f"{SPEC.name}.feather_mask_boundary"]
 
-from comfy_extras.nodes_mask import FeatherMask
+from comfy_extras.nodes_mask import FeatherMask, GrowMask
 
 
 def reference(mask: torch.Tensor, left: int, top: int, right: int, bottom: int) -> torch.Tensor:
@@ -40,10 +41,30 @@ def reference(mask: torch.Tensor, left: int, top: int, right: int, bottom: int) 
     return output[0] if mask.ndim == 2 else output
 
 
+def outward_reference(mask: torch.Tensor, left: int, top: int, right: int, bottom: int) -> torch.Tensor:
+    batch = mask.unsqueeze(0) if mask.ndim == 2 else mask
+    grow_amount = max(max(left, top, right, bottom) - 1, 0)
+    if grow_amount:
+        padded = functional.pad(batch, (grow_amount, grow_amount, grow_amount, grow_amount), value=0)
+        grown = GrowMask.execute(padded, grow_amount, True).result[0]
+    else:
+        grown = batch
+    feathered = reference(grown, left, top, right, bottom)
+    height, width = batch.shape[-2:]
+    result = feathered[:, grow_amount : grow_amount + height, grow_amount : grow_amount + width]
+    return result[0] if mask.ndim == 2 else result
+
+
 class FeatherMaskFromBoundaryTests(unittest.TestCase):
     def assert_reference(self, mask, left, top, right, bottom):
         expected = reference(mask, left, top, right, bottom)
         actual = MODULE.feather_mask_from_boundary(mask, left, top, right, bottom)
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+        return actual
+
+    def assert_outward_reference(self, mask, left, top, right, bottom):
+        expected = outward_reference(mask, left, top, right, bottom)
+        actual = MODULE.feather_mask_from_boundary(mask, left, top, right, bottom, True)
         torch.testing.assert_close(actual, expected, rtol=0, atol=0)
         return actual
 
@@ -146,6 +167,95 @@ class FeatherMaskFromBoundaryTests(unittest.TestCase):
         actual = self.assert_reference(mask, 2, 1, 3, 4)
         self.assertEqual(tuple(actual.shape), (8, 10))
 
+    def test_outward_right_moves_ramp_outside_original_boundary(self):
+        mask = torch.zeros((1, 15, 24))
+        mask[:, 4:11, 5:15] = 1
+        inward = MODULE.feather_mask_from_boundary(mask, 0, 0, 4, 0, False)
+        outward = self.assert_outward_reference(mask, 0, 0, 4, 0)
+        self.assertEqual(inward[0, 7, 11:15].tolist(), [1.0, 0.75, 0.5, 0.25])
+        self.assertTrue(torch.equal(outward[0, 7, 5:15], torch.ones(10)))
+        torch.testing.assert_close(outward[0, 7, 14:18], torch.tensor([1.0, 0.75, 0.5, 0.25]))
+        self.assertEqual(float(outward[0, 7, 18]), 0.0)
+
+    def test_automatic_grow_amount_accounts_for_factor_one_position(self):
+        self.assertEqual(MODULE._automatic_grow_amount(0, 0, 0, 0), 0)
+        self.assertEqual(MODULE._automatic_grow_amount(1, 0, 0, 0), 0)
+        self.assertEqual(MODULE._automatic_grow_amount(0, 0, 4, 0), 3)
+        self.assertEqual(MODULE._automatic_grow_amount(10, 20, 100, 40), 99)
+
+    def test_outward_each_side_preserves_original_hard_interior(self):
+        widths = ((4, 0, 0, 0), (0, 4, 0, 0), (0, 0, 4, 0), (0, 0, 0, 4))
+        for setting in widths:
+            with self.subTest(widths=setting):
+                mask = torch.zeros((1, 18, 22))
+                mask[:, 5:13, 6:16] = 1
+                actual = self.assert_outward_reference(mask, *setting)
+                self.assertTrue(torch.equal(actual[:, 5:13, 6:16], torch.ones((1, 8, 10))))
+
+    def test_outward_corner_and_all_side_combinations_preserve_core_ramps(self):
+        settings = (
+            (4, 4, 0, 0),
+            (0, 4, 4, 0),
+            (0, 0, 4, 4),
+            (4, 0, 0, 4),
+            (3, 4, 5, 6),
+        )
+        for widths in settings:
+            with self.subTest(widths=widths):
+                mask = torch.zeros((1, 24, 28))
+                mask[:, 8:16, 9:19] = 1
+                actual = self.assert_outward_reference(mask, *widths)
+                self.assertTrue(torch.equal(actual[:, 8:16, 9:19], torch.ones((1, 8, 10))))
+
+    def test_outward_asymmetric_sides_use_maximum_and_keep_individual_feathers(self):
+        mask = torch.zeros((1, 260, 320))
+        mask[:, 110:150, 130:190] = 1
+        actual = self.assert_outward_reference(mask, 0, 20, 100, 40)
+        self.assertTrue(torch.equal(actual[:, 110:150, 130:190], torch.ones((1, 40, 60))))
+        self.assertEqual(float(actual[0, 130, 90]), 1.0)
+        self.assertAlmostEqual(float(actual[0, 130, 288]), 0.01)
+        self.assertAlmostEqual(float(actual[0, 11, 160]), 0.05)
+        self.assertAlmostEqual(float(actual[0, 248, 160]), 0.025)
+
+    def test_outward_large_asymmetric_widths(self):
+        mask = torch.zeros((1, 40, 500))
+        mask[:, 15:25, 220:280] = 1
+        actual = self.assert_outward_reference(mask, 10, 0, 200, 0)
+        self.assertTrue(torch.equal(actual[:, 15:25, 220:280], torch.ones((1, 10, 60))))
+        self.assertAlmostEqual(float(actual[0, 20, 478]), 0.005)
+        self.assertAlmostEqual(float(actual[0, 20, 21]), 0.1)
+
+    def test_outward_zero_feather_side_retains_omnidirectional_grown_support(self):
+        mask = torch.zeros((1, 20, 24))
+        mask[:, 7:13, 8:16] = 1
+        actual = self.assert_outward_reference(mask, 0, 0, 4, 0)
+        self.assertEqual(float(actual[0, 10, 5]), 1.0)
+        self.assertEqual(float(actual[0, 4, 12]), 1.0)
+        self.assertEqual(float(actual[0, 15, 12]), 1.0)
+
+    def test_outward_padding_preserves_boundary_when_content_touches_canvas_edge(self):
+        mask = torch.zeros((1, 12, 20))
+        mask[:, 3:9, 11:20] = 1
+        actual = self.assert_outward_reference(mask, 0, 0, 4, 0)
+        self.assertTrue(torch.equal(actual[:, 3:9, 11:20], torch.ones((1, 6, 9))))
+        self.assertEqual(float(actual[0, 6, 19]), 1.0)
+
+    def test_outward_soft_mask_preserves_grayscale_grow_without_normalizing(self):
+        mask = torch.zeros((1, 16, 24))
+        mask[:, 5:11, 7:15] = 0.7
+        original = mask.clone()
+        actual = self.assert_outward_reference(mask, 0, 0, 4, 0)
+        self.assertAlmostEqual(float(actual.max()), 0.7)
+        self.assertTrue(torch.allclose(actual[:, 5:11, 7:15], torch.full((1, 6, 8), 0.7)))
+        self.assertAlmostEqual(float(actual[0, 8, 15]), 0.525)
+        torch.testing.assert_close(mask, original, rtol=0, atol=0)
+
+    def test_outward_batch_uses_independent_boundaries(self):
+        mask = torch.zeros((2, 20, 26))
+        mask[0, 3:9, 4:11] = 1
+        mask[1, 11:17, 15:22] = 0.6
+        self.assert_outward_reference(mask, 3, 2, 5, 4)
+
     def test_invalid_input_and_widths_fail_clearly(self):
         with self.assertRaisesRegex(TypeError, "torch.Tensor"):
             MODULE.feather_mask_from_boundary([[1.0]], 0, 0, 0, 0)
@@ -155,13 +265,18 @@ class FeatherMaskFromBoundaryTests(unittest.TestCase):
             MODULE.feather_mask_from_boundary(torch.empty((1, 0, 3)), 0, 0, 0, 0)
         with self.assertRaisesRegex(ValueError, "nonnegative"):
             MODULE.feather_mask_from_boundary(torch.ones((3, 3)), -1, 0, 0, 0)
+        with self.assertRaisesRegex(TypeError, "outward"):
+            MODULE.feather_mask_from_boundary(torch.ones((3, 3)), 0, 0, 0, 0, 1)
 
     def test_schema(self):
         schema = MODULE.FeatherMaskFromBoundary.define_schema()
         self.assertEqual(schema.node_id, "UtilitySuiteFeatherMaskFromBoundary")
         self.assertEqual(schema.display_name, "Feather Mask from Boundary")
         self.assertEqual(schema.category, "Utility Suite/Mask")
-        self.assertEqual([item.id for item in schema.inputs], ["mask", "left", "top", "right", "bottom"])
+        self.assertEqual(
+            [item.id for item in schema.inputs], ["mask", "left", "top", "right", "bottom", "outward"]
+        )
+        self.assertFalse(schema.inputs[-1].default)
         self.assertEqual(schema.outputs[0].io_type, "MASK")
 
 

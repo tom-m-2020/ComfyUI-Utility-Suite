@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import numpy as np
+import scipy.ndimage
 import torch
 from comfy_api.latest import io
+from torch.nn import functional
 
 from .mask_bbox import nonzero_mask_bounds
 
@@ -31,12 +34,47 @@ def _feather_crop(
     return output
 
 
+def _feather_from_detected_boundary(
+    batch: torch.Tensor,
+    left: int,
+    top: int,
+    right: int,
+    bottom: int,
+) -> torch.Tensor:
+    output = torch.zeros_like(batch)
+    for index, item in enumerate(batch):
+        bounds = nonzero_mask_bounds(item)
+        if bounds is None:
+            continue
+        x0, y0, x1, y1 = bounds
+        output[index, y0:y1, x0:x1] = _feather_crop(
+            item[y0:y1, x0:x1], left, top, right, bottom
+        )
+    return output
+
+
+def _automatic_grow_amount(left: int, top: int, right: int, bottom: int) -> int:
+    return max(max(left, top, right, bottom) - 1, 0)
+
+
+def _core_grow_mask(mask: torch.Tensor, amount: int) -> torch.Tensor:
+    footprint = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]])
+    grown = []
+    for item in mask:
+        output = item.numpy()
+        for _ in range(amount):
+            output = scipy.ndimage.grey_dilation(output, footprint=footprint)
+        grown.append(torch.from_numpy(output))
+    return torch.stack(grown, dim=0)
+
+
 def feather_mask_from_boundary(
     mask: torch.Tensor,
     left: int,
     top: int,
     right: int,
     bottom: int,
+    outward: bool = False,
 ) -> torch.Tensor:
     if not isinstance(mask, torch.Tensor):
         raise TypeError(f"Feather Mask from Boundary expects a torch.Tensor MASK, got {type(mask).__name__}.")
@@ -59,16 +97,23 @@ def feather_mask_from_boundary(
         raise TypeError("Feather Mask from Boundary widths must be integers.")
     if any(value < 0 for value in widths):
         raise ValueError(f"Feather Mask from Boundary widths must be nonnegative, got {widths}.")
+    if not isinstance(outward, bool):
+        raise TypeError(f"Feather Mask from Boundary outward must be BOOLEAN, got {type(outward).__name__}.")
 
-    output = torch.zeros_like(batch)
-    for index, item in enumerate(batch):
-        bounds = nonzero_mask_bounds(item)
-        if bounds is None:
-            continue
-        x0, y0, x1, y1 = bounds
-        output[index, y0:y1, x0:x1] = _feather_crop(
-            item[y0:y1, x0:x1], left, top, right, bottom
-        )
+    if not outward:
+        output = _feather_from_detected_boundary(batch, left, top, right, bottom)
+    else:
+        grow_amount = _automatic_grow_amount(left, top, right, bottom)
+        if grow_amount == 0:
+            grown = batch
+            padding = 0
+        else:
+            padding = grow_amount
+            padded = functional.pad(batch, (padding, padding, padding, padding), value=0)
+            grown = _core_grow_mask(padded, grow_amount)
+        feathered = _feather_from_detected_boundary(grown, left, top, right, bottom)
+        height, width = batch.shape[-2:]
+        output = feathered[:, padding : padding + height, padding : padding + width]
     return output[0] if restore_rank_two else output
 
 
@@ -85,6 +130,7 @@ class FeatherMaskFromBoundary(io.ComfyNode):
                 io.Int.Input("top", default=0, min=0, max=16384, step=1),
                 io.Int.Input("right", default=0, min=0, max=16384, step=1),
                 io.Int.Input("bottom", default=0, min=0, max=16384, step=1),
+                io.Boolean.Input("outward", default=False),
             ],
             outputs=[io.Mask.Output("mask", display_name="mask")],
         )
@@ -97,5 +143,6 @@ class FeatherMaskFromBoundary(io.ComfyNode):
         top: int,
         right: int,
         bottom: int,
+        outward: bool,
     ) -> io.NodeOutput:
-        return io.NodeOutput(feather_mask_from_boundary(mask, left, top, right, bottom))
+        return io.NodeOutput(feather_mask_from_boundary(mask, left, top, right, bottom, outward))
