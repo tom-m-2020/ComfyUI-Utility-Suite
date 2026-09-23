@@ -41,12 +41,19 @@ def reference(mask: torch.Tensor, left: int, top: int, right: int, bottom: int) 
     return output[0] if mask.ndim == 2 else output
 
 
-def outward_reference(mask: torch.Tensor, left: int, top: int, right: int, bottom: int) -> torch.Tensor:
+def outward_reference(
+    mask: torch.Tensor,
+    left: int,
+    top: int,
+    right: int,
+    bottom: int,
+    tapered_corners: bool = False,
+) -> torch.Tensor:
     batch = mask.unsqueeze(0) if mask.ndim == 2 else mask
     grow_amount = max(max(left, top, right, bottom) - 1, 0)
     if grow_amount:
         padded = functional.pad(batch, (grow_amount, grow_amount, grow_amount, grow_amount), value=0)
-        grown = GrowMask.execute(padded, grow_amount, True).result[0]
+        grown = GrowMask.execute(padded, grow_amount, tapered_corners).result[0]
     else:
         grown = batch
     feathered = reference(grown, left, top, right, bottom)
@@ -62,9 +69,11 @@ class FeatherMaskFromBoundaryTests(unittest.TestCase):
         torch.testing.assert_close(actual, expected, rtol=0, atol=0)
         return actual
 
-    def assert_outward_reference(self, mask, left, top, right, bottom):
-        expected = outward_reference(mask, left, top, right, bottom)
-        actual = MODULE.feather_mask_from_boundary(mask, left, top, right, bottom, True)
+    def assert_outward_reference(self, mask, left, top, right, bottom, tapered_corners=False):
+        expected = outward_reference(mask, left, top, right, bottom, tapered_corners)
+        actual = MODULE.feather_mask_from_boundary(
+            mask, left, top, right, bottom, True, tapered_corners
+        )
         torch.testing.assert_close(actual, expected, rtol=0, atol=0)
         return actual
 
@@ -185,12 +194,13 @@ class FeatherMaskFromBoundaryTests(unittest.TestCase):
 
     def test_outward_each_side_preserves_original_hard_interior(self):
         widths = ((4, 0, 0, 0), (0, 4, 0, 0), (0, 0, 4, 0), (0, 0, 0, 4))
-        for setting in widths:
-            with self.subTest(widths=setting):
-                mask = torch.zeros((1, 18, 22))
-                mask[:, 5:13, 6:16] = 1
-                actual = self.assert_outward_reference(mask, *setting)
-                self.assertTrue(torch.equal(actual[:, 5:13, 6:16], torch.ones((1, 8, 10))))
+        for tapered_corners in (False, True):
+            for setting in widths:
+                with self.subTest(widths=setting, tapered_corners=tapered_corners):
+                    mask = torch.zeros((1, 18, 22))
+                    mask[:, 5:13, 6:16] = 1
+                    actual = self.assert_outward_reference(mask, *setting, tapered_corners)
+                    self.assertTrue(torch.equal(actual[:, 5:13, 6:16], torch.ones((1, 8, 10))))
 
     def test_outward_corner_and_all_side_combinations_preserve_core_ramps(self):
         settings = (
@@ -200,12 +210,54 @@ class FeatherMaskFromBoundaryTests(unittest.TestCase):
             (4, 0, 0, 4),
             (3, 4, 5, 6),
         )
-        for widths in settings:
-            with self.subTest(widths=widths):
-                mask = torch.zeros((1, 24, 28))
-                mask[:, 8:16, 9:19] = 1
-                actual = self.assert_outward_reference(mask, *widths)
-                self.assertTrue(torch.equal(actual[:, 8:16, 9:19], torch.ones((1, 8, 10))))
+        for tapered_corners in (False, True):
+            for widths in settings:
+                with self.subTest(widths=widths, tapered_corners=tapered_corners):
+                    mask = torch.zeros((1, 24, 28))
+                    mask[:, 8:16, 9:19] = 1
+                    actual = self.assert_outward_reference(mask, *widths, tapered_corners)
+                    self.assertTrue(torch.equal(actual[:, 8:16, 9:19], torch.ones((1, 8, 10))))
+
+    def test_outward_corner_mode_matches_core_and_removes_l1_diagonal_cutoff(self):
+        mask = torch.zeros((1, 18, 18))
+        mask[:, 5:10, 5:10] = 1
+        square = self.assert_outward_reference(mask, 0, 0, 4, 4, False)
+        tapered = self.assert_outward_reference(mask, 0, 0, 4, 4, True)
+        self.assertAlmostEqual(float(square[0, 12, 12]), 0.25 * 0.25)
+        self.assertEqual(float(tapered[0, 12, 12]), 0.0)
+        self.assertAlmostEqual(float(square[0, 10, 10]), 0.75 * 0.75)
+        self.assertAlmostEqual(float(tapered[0, 10, 10]), 0.75 * 0.75)
+        self.assertTrue(torch.equal(square[:, 5:10, 5:10], torch.ones((1, 5, 5))))
+        self.assertTrue(torch.equal(tapered[:, 5:10, 5:10], torch.ones((1, 5, 5))))
+
+    def test_core_grow_helper_matches_both_core_corner_modes(self):
+        mask = torch.zeros((1, 11, 11))
+        mask[:, 5, 5] = 0.7
+        for tapered_corners in (False, True):
+            with self.subTest(tapered_corners=tapered_corners):
+                expected = GrowMask.execute(mask, 3, tapered_corners).result[0]
+                actual = MODULE._core_grow_mask(mask, 3, tapered_corners)
+                torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+                self.assertAlmostEqual(float(actual.max()), 0.7)
+        square = MODULE._core_grow_mask(mask, 3, False)
+        tapered = MODULE._core_grow_mask(mask, 3, True)
+        self.assertAlmostEqual(float(square[0, 8, 8]), 0.7)
+        self.assertEqual(float(tapered[0, 8, 8]), 0.0)
+
+    def test_corner_modes_have_equal_straight_displacement(self):
+        mask = torch.zeros((1, 15, 20))
+        mask[:, :, :8] = 1
+        square = MODULE._core_grow_mask(mask, 4, False)
+        tapered = MODULE._core_grow_mask(mask, 4, True)
+        self.assertEqual(int(torch.nonzero(square[0, 7])[:, 0].max()), 11)
+        self.assertEqual(int(torch.nonzero(tapered[0, 7])[:, 0].max()), 11)
+
+    def test_outward_false_ignores_tapered_corners(self):
+        mask = torch.zeros((1, 14, 17))
+        mask[:, 3:11, 4:13] = 1
+        square = MODULE.feather_mask_from_boundary(mask, 2, 3, 4, 5, False, False)
+        tapered = MODULE.feather_mask_from_boundary(mask, 2, 3, 4, 5, False, True)
+        torch.testing.assert_close(square, tapered, rtol=0, atol=0)
 
     def test_outward_asymmetric_sides_use_maximum_and_keep_individual_feathers(self):
         mask = torch.zeros((1, 260, 320))
@@ -267,6 +319,8 @@ class FeatherMaskFromBoundaryTests(unittest.TestCase):
             MODULE.feather_mask_from_boundary(torch.ones((3, 3)), -1, 0, 0, 0)
         with self.assertRaisesRegex(TypeError, "outward"):
             MODULE.feather_mask_from_boundary(torch.ones((3, 3)), 0, 0, 0, 0, 1)
+        with self.assertRaisesRegex(TypeError, "tapered_corners"):
+            MODULE.feather_mask_from_boundary(torch.ones((3, 3)), 0, 0, 0, 0, False, 1)
 
     def test_schema(self):
         schema = MODULE.FeatherMaskFromBoundary.define_schema()
@@ -274,9 +328,11 @@ class FeatherMaskFromBoundaryTests(unittest.TestCase):
         self.assertEqual(schema.display_name, "Feather Mask from Boundary")
         self.assertEqual(schema.category, "Utility Suite/Mask")
         self.assertEqual(
-            [item.id for item in schema.inputs], ["mask", "left", "top", "right", "bottom", "outward"]
+            [item.id for item in schema.inputs],
+            ["mask", "left", "top", "right", "bottom", "outward", "tapered_corners"],
         )
         self.assertFalse(schema.inputs[-1].default)
+        self.assertFalse(schema.inputs[-2].default)
         self.assertEqual(schema.outputs[0].io_type, "MASK")
 
 

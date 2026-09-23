@@ -57,8 +57,9 @@ def _automatic_grow_amount(left: int, top: int, right: int, bottom: int) -> int:
     return max(max(left, top, right, bottom) - 1, 0)
 
 
-def _core_grow_mask(mask: torch.Tensor, amount: int) -> torch.Tensor:
-    footprint = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]])
+def _core_grow_mask(mask: torch.Tensor, amount: int, tapered_corners: bool) -> torch.Tensor:
+    corner = 0 if tapered_corners else 1
+    footprint = np.array([[corner, 1, corner], [1, 1, 1], [corner, 1, corner]])
     grown = []
     for item in mask:
         output = item.numpy()
@@ -75,6 +76,7 @@ def feather_mask_from_boundary(
     right: int,
     bottom: int,
     outward: bool = False,
+    tapered_corners: bool = False,
 ) -> torch.Tensor:
     if not isinstance(mask, torch.Tensor):
         raise TypeError(f"Feather Mask from Boundary expects a torch.Tensor MASK, got {type(mask).__name__}.")
@@ -99,6 +101,11 @@ def feather_mask_from_boundary(
         raise ValueError(f"Feather Mask from Boundary widths must be nonnegative, got {widths}.")
     if not isinstance(outward, bool):
         raise TypeError(f"Feather Mask from Boundary outward must be BOOLEAN, got {type(outward).__name__}.")
+    if not isinstance(tapered_corners, bool):
+        raise TypeError(
+            "Feather Mask from Boundary tapered_corners must be BOOLEAN, "
+            f"got {type(tapered_corners).__name__}."
+        )
 
     if not outward:
         output = _feather_from_detected_boundary(batch, left, top, right, bottom)
@@ -110,7 +117,7 @@ def feather_mask_from_boundary(
         else:
             padding = grow_amount
             padded = functional.pad(batch, (padding, padding, padding, padding), value=0)
-            grown = _core_grow_mask(padded, grow_amount)
+            grown = _core_grow_mask(padded, grow_amount, tapered_corners)
         feathered = _feather_from_detected_boundary(grown, left, top, right, bottom)
         height, width = batch.shape[-2:]
         output = feathered[:, padding : padding + height, padding : padding + width]
@@ -131,6 +138,7 @@ class FeatherMaskFromBoundary(io.ComfyNode):
                 io.Int.Input("right", default=0, min=0, max=16384, step=1),
                 io.Int.Input("bottom", default=0, min=0, max=16384, step=1),
                 io.Boolean.Input("outward", default=False),
+                io.Boolean.Input("tapered_corners", default=False),
             ],
             outputs=[io.Mask.Output("mask", display_name="mask")],
         )
@@ -144,5 +152,10 @@ class FeatherMaskFromBoundary(io.ComfyNode):
         right: int,
         bottom: int,
         outward: bool,
+        tapered_corners: bool,
     ) -> io.NodeOutput:
-        return io.NodeOutput(feather_mask_from_boundary(mask, left, top, right, bottom, outward))
+        return io.NodeOutput(
+            feather_mask_from_boundary(
+                mask, left, top, right, bottom, outward, tapered_corners
+            )
+        )
