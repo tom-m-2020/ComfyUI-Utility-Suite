@@ -17,6 +17,7 @@ from .filter_tile_segs import FilterTileSEGS
 from .image_batch import ImageBatchToImageList, ImageListToImageBatch
 from .input_kind import ListBatchInspector
 from .invert_mask_segs import InvertMaskSEGS
+from .latent_image_size import GetImageSizeFromLatent
 from .list_accumulator import ListAccumulatorAppend, ListAccumulatorToList
 from .list_any import ListAnyAppend
 from .mask_batch import MaskToMaskBatch
@@ -48,6 +49,7 @@ class UtilitySuiteExtension(ComfyExtension):
             ImageBatchToImageList,
             ListBatchInspector,
             InvertMaskSEGS,
+            GetImageSizeFromLatent,
             ListAnyAppend,
             ListAccumulatorAppend,
             ListAccumulatorToList,

@@ -84,6 +84,7 @@ class ImageBatchListTests(unittest.TestCase):
                 "UtilitySuiteImageBatchToImageList",
                 "UtilitySuiteListBatchInspector",
                 "UtilitySuiteInvertMaskSEGS",
+                "UtilitySuiteGetImageSizeFromLatent",
                 "UtilitySuiteListAnyAppend",
                 "UtilitySuiteListAccumulatorAppend",
                 "UtilitySuiteListAccumulatorToList",
