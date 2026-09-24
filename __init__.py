@@ -12,6 +12,7 @@ from .any_pipe import (
 from .bbox_coordinates import BBOXCoordinates
 from .bbox_transport import BBOXCollectionToList, BBOXListToCollection
 from .combine_masks_segs import CombineMasksSEGSAndMASK, CombineMasksSEGSAndSEGS
+from .empty_latent_vae import EmptyLatentFromVAE
 from .feather_mask_boundary import FeatherMaskFromBoundary
 from .filter_tile_segs import FilterTileSEGS
 from .image_batch import ImageBatchToImageList, ImageListToImageBatch
@@ -44,6 +45,7 @@ class UtilitySuiteExtension(ComfyExtension):
             ImageUntileBatch,
             CombineMasksSEGSAndMASK,
             CombineMasksSEGSAndSEGS,
+            EmptyLatentFromVAE,
             FeatherMaskFromBoundary,
             ImageListToImageBatch,
             ImageBatchToImageList,
