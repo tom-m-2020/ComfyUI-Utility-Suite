@@ -108,6 +108,7 @@ class ImageBatchListTests(unittest.TestCase):
             "UtilitySuiteBBOXCollectionToList",
             "UtilitySuiteBBOXCoordinates",
                 "UtilitySuitePipeSetAny",
+                "UtilitySuitePipeAnySingle",
                 "UtilitySuitePipeSetList",
                 "UtilitySuitePipeGetAny",
                 "UtilitySuitePipeGetList",

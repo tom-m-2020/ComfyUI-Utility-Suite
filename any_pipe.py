@@ -6,6 +6,7 @@ from typing import Any, Literal
 from comfy_api.latest import io
 
 UTILITY_ANY_PIPE = io.Custom("UTILITY_ANY_PIPE")
+_MISSING = object()
 
 
 @dataclass(frozen=True)
@@ -86,6 +87,36 @@ def _optional_field(pipe: UtilityAnyPipe, key: str, kind: Literal["scalar", "lis
     if entry.kind != kind:
         raise TypeError(f"UTILITY_ANY_PIPE field {key!r} is {entry.kind}, expected {kind}.")
     return entry.value if kind == "scalar" else list(entry.value)
+
+
+class PipeAnySingle(io.ComfyNode):
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        value_type = io.MatchType.Template("any")
+        return io.Schema(
+            node_id="UtilitySuitePipeAnySingle",
+            display_name="Pipe Any (Single)",
+            category="Utility Suite/Routing",
+            description="Round-trips one mapped scalar value through a Utility-Suite pipe.",
+            inputs=[
+                io.MatchType.Input(
+                    "any",
+                    template=value_type,
+                    optional=True,
+                ),
+            ],
+            outputs=[
+                io.MatchType.Output(template=value_type, id="any"),
+                io.Boolean.Output("present", display_name="present"),
+            ],
+        )
+
+    @classmethod
+    def execute(cls, any=_MISSING) -> io.NodeOutput:
+        if any is _MISSING:
+            return io.NodeOutput(None, False)
+        pipe = set_scalar(UtilityAnyPipe(), "any", any)
+        return io.NodeOutput(get_scalar(pipe, "any"), True)
 
 
 class PipeSetAny(io.ComfyNode):

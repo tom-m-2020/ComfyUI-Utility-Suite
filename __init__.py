@@ -2,6 +2,7 @@ from comfy_api.latest import ComfyExtension, io
 from typing_extensions import override
 
 from .any_pipe import (
+    PipeAnySingle,
     PipeFromAny,
     PipeGetAny,
     PipeGetList,
@@ -72,6 +73,7 @@ class UtilitySuiteExtension(ComfyExtension):
             SEGFromSEGS,
             SEGSOverlapToMASK,
             PipeSetAny,
+            PipeAnySingle,
             PipeSetList,
             PipeGetAny,
             PipeGetList,
