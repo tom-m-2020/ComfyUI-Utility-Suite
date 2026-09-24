@@ -30,6 +30,7 @@ from .mask_list import MaskFromList
 from .mask_tile_segs import MaskToTileSEGS
 from .preview_segs_regions import PreviewSEGSRegions
 from .reorder_segs import ReorderSEGS
+from .reroute_optional import RerouteOptional
 from .restore_tile_segs_gaps import RestoreTileSEGSGaps
 from .seg_from_segs import SEGFromSEGS
 from .segs_bbox import SEGSToBBOX
@@ -66,6 +67,7 @@ class UtilitySuiteExtension(ComfyExtension):
             FilterTileSEGS,
             PreviewSEGSRegions,
             RestoreTileSEGSGaps,
+            RerouteOptional,
             ReorderSEGS,
             SEGFromSEGS,
             SEGSOverlapToMASK,
