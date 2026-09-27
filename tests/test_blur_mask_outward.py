@@ -4,6 +4,7 @@ import importlib.util
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import torch
@@ -50,6 +51,90 @@ class BlurMaskOutwardTests(unittest.TestCase):
         self.assertEqual(schema.inputs[1].step, 0.1)
         self.assertFalse(schema.inputs[2].default)
         self.assertTrue(schema.inputs[3].default)
+        self.assertEqual([output.io_type for output in schema.outputs], ["MASK", "INT"])
+        self.assertEqual([output.id for output in schema.outputs], ["mask", "grow_amount"])
+
+    def test_grow_amount_schema_matches_processing_widgets_without_mask(self):
+        processing = MODULE.BlurMaskOutward.define_schema()
+        calculator = MODULE.BlurMaskOutwardGrowAmount.define_schema()
+        self.assertEqual(calculator.node_id, "UtilitySuiteBlurMaskOutwardGrowAmount")
+        self.assertEqual(calculator.display_name, "Blur Mask Outward Grow Amount")
+        self.assertEqual(calculator.category, "Utility Suite/Mask")
+        self.assertEqual(
+            [item.id for item in calculator.inputs],
+            ["blur_radius", "tapered_corners", "outward"],
+        )
+        self.assertNotIn("mask", [item.id for item in calculator.inputs])
+        for processing_input, calculator_input in zip(processing.inputs[1:], calculator.inputs):
+            self.assertEqual(processing_input.default, calculator_input.default)
+        self.assertEqual(calculator.inputs[0].min, processing.inputs[1].min)
+        self.assertEqual(calculator.inputs[0].max, processing.inputs[1].max)
+        self.assertEqual(calculator.inputs[0].step, processing.inputs[1].step)
+        self.assertEqual([output.io_type for output in calculator.outputs], ["INT"])
+
+    def test_reported_square_amounts_match_audited_table(self):
+        expected = {1: 3, 2: 5, 4: 10, 8: 20, 16: 41, 32: 81, 64: 163, 100: 254}
+        actual = {
+            radius: MODULE.BlurMaskOutwardGrowAmount.execute(radius, False, True).result[0]
+            for radius in expected
+        }
+        self.assertEqual(actual, expected)
+
+    def test_reported_tapered_amounts_match_current_conservative_calibration(self):
+        expected = {1: 4, 2: 9, 4: 17, 8: 34, 16: 68, 32: 137, 64: 274, 100: 427}
+        actual = {
+            radius: MODULE.BlurMaskOutwardGrowAmount.execute(radius, True, True).result[0]
+            for radius in expected
+        }
+        self.assertEqual(actual, expected)
+
+    def test_disabled_or_zero_radius_reports_no_actual_growth(self):
+        for tapered in (False, True):
+            self.assertEqual(MODULE.outward_grow_amount(64, tapered, False), 0)
+            self.assertEqual(MODULE.outward_grow_amount(0, tapered, True), 0)
+            mask = torch.ones((3, 5))
+            self.assertEqual(MODULE.BlurMaskOutward.execute(mask, 64, tapered, False).result[1], 0)
+            self.assertEqual(MODULE.BlurMaskOutward.execute(mask, 0, tapered, True).result[1], 0)
+
+    def test_processing_and_calculation_nodes_report_one_authoritative_amount(self):
+        mask = torch.zeros((9, 13))
+        mask[2:7, 3:9] = 1
+        combinations = ((2.5, False, True), (2.5, True, True), (5.75, False, True), (5.75, True, False))
+        for radius, tapered, outward in combinations:
+            with self.subTest(radius=radius, tapered=tapered, outward=outward):
+                processed = MODULE.BlurMaskOutward.execute(mask, radius, tapered, outward).result
+                calculated = MODULE.BlurMaskOutwardGrowAmount.execute(radius, tapered, outward).result[0]
+                self.assertEqual(processed[1], calculated)
+                torch.testing.assert_close(
+                    processed[0],
+                    MODULE.blur_mask_outward(mask, radius, tapered, outward),
+                    rtol=0,
+                    atol=0,
+                )
+
+    def test_radius_64_reports_and_uses_square_grow_163(self):
+        mask = torch.zeros((7, 11))
+        mask[2:5, 3:7] = 1
+        original_grow = MODULE._grow
+        with patch.object(MODULE, "_grow", wraps=original_grow) as grow:
+            processed, amount = MODULE.BlurMaskOutward.execute(mask, 64, False, True).result
+        self.assertEqual(amount, 163)
+        self.assertEqual(MODULE.BlurMaskOutwardGrowAmount.execute(64, False, True).result[0], 163)
+        self.assertEqual(grow.call_count, 1)
+        self.assertEqual(grow.call_args.args[1:], (163, False))
+        self.assertEqual(tuple(processed.shape), tuple(mask.shape))
+
+    def test_calculation_only_node_does_not_invoke_normal_mask_pipeline(self):
+        with (
+            patch.object(MODULE, "_grow", side_effect=AssertionError("normal morphology invoked")),
+            patch.object(
+                MODULE,
+                "blur_mask_outward",
+                side_effect=AssertionError("normal mask processing invoked"),
+            ),
+        ):
+            amount = MODULE.BlurMaskOutwardGrowAmount.execute(3.25, False, True).result[0]
+        self.assertEqual(amount, MODULE.outward_grow_amount(3.25, False, True))
 
     def test_outward_false_exactly_matches_kj_pillow_path(self):
         mask = torch.zeros((2, 31, 45), dtype=torch.float32)

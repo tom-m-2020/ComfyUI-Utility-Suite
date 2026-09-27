@@ -12,7 +12,7 @@ from .any_pipe import (
 )
 from .bbox_coordinates import BBOXCoordinates
 from .bbox_transport import BBOXCollectionToList, BBOXListToCollection
-from .blur_mask_outward import BlurMaskOutward
+from .blur_mask_outward import BlurMaskOutward, BlurMaskOutwardGrowAmount
 from .combine_masks_segs import CombineMasksSEGSAndMASK, CombineMasksSEGSAndSEGS
 from .empty_latent_vae import EmptyLatentFromVAE
 from .feather_mask_boundary import FeatherMaskFromBoundary
@@ -48,6 +48,7 @@ class UtilitySuiteExtension(ComfyExtension):
             ImageTileBatch,
             ImageUntileBatch,
             BlurMaskOutward,
+            BlurMaskOutwardGrowAmount,
             CombineMasksSEGSAndMASK,
             CombineMasksSEGSAndSEGS,
             EmptyLatentFromVAE,

@@ -9,6 +9,11 @@ import torch
 from comfy_api.latest import io
 from PIL import Image, ImageFilter
 
+BLUR_RADIUS_DEFAULT = 0.0
+BLUR_RADIUS_MIN = 0.0
+BLUR_RADIUS_MAX = 100.0
+BLUR_RADIUS_STEP = 0.1
+
 
 def _validate_radius(blur_radius: float) -> float:
     if isinstance(blur_radius, bool) or not isinstance(blur_radius, (int, float)):
@@ -92,12 +97,40 @@ def _grow(mask: np.ndarray, amount: int, tapered_corners: bool) -> np.ndarray:
     return cv2.dilate(mask, kernel, iterations=1)
 
 
+def outward_grow_amount(
+    blur_radius: float,
+    tapered_corners: bool = False,
+    outward: bool = True,
+) -> int:
+    radius = _validate_radius(blur_radius)
+    if not isinstance(tapered_corners, bool):
+        raise TypeError(
+            f"Blur Mask Outward tapered_corners must be BOOLEAN, got {type(tapered_corners).__name__}."
+        )
+    if not isinstance(outward, bool):
+        raise TypeError(f"Blur Mask Outward outward must be BOOLEAN, got {type(outward).__name__}.")
+    if not outward or radius == 0:
+        return 0
+    if tapered_corners:
+        return _minimum_tapered_compensation(radius)
+    return _minimum_straight_compensation(radius)
+
+
 def blur_mask_outward(
     mask: torch.Tensor,
     blur_radius: float,
     tapered_corners: bool = False,
     outward: bool = True,
 ) -> torch.Tensor:
+    return _blur_mask_outward_with_amount(mask, blur_radius, tapered_corners, outward)[0]
+
+
+def _blur_mask_outward_with_amount(
+    mask: torch.Tensor,
+    blur_radius: float,
+    tapered_corners: bool,
+    outward: bool,
+) -> tuple[torch.Tensor, int]:
     if not isinstance(mask, torch.Tensor):
         raise TypeError(f"Blur Mask Outward expects a torch.Tensor MASK, got {type(mask).__name__}.")
     if mask.ndim == 2:
@@ -110,28 +143,16 @@ def blur_mask_outward(
         raise ValueError(f"Blur Mask Outward expects MASK [H,W] or [B,H,W], got shape {tuple(mask.shape)}.")
     if any(dimension == 0 for dimension in batch.shape):
         raise ValueError(f"Blur Mask Outward requires nonempty dimensions, got shape {tuple(batch.shape)}.")
-    if not isinstance(tapered_corners, bool):
-        raise TypeError(
-            f"Blur Mask Outward tapered_corners must be BOOLEAN, got {type(tapered_corners).__name__}."
-        )
-    if not isinstance(outward, bool):
-        raise TypeError(f"Blur Mask Outward outward must be BOOLEAN, got {type(outward).__name__}.")
-
     radius = _validate_radius(blur_radius)
+    grow_amount = outward_grow_amount(radius, tapered_corners, outward)
     if radius == 0:
-        return mask.clone()
+        return mask.clone(), grow_amount
 
     source = batch.detach().to(device="cpu", dtype=torch.float32).numpy()
     if outward:
-        grow_amount = (
-            _minimum_tapered_compensation(radius)
-            if tapered_corners
-            else _minimum_straight_compensation(radius)
-        )
         support = _pillow_support_bound(radius)
         padding = grow_amount + support
     else:
-        grow_amount = 0
         padding = 0
 
     results = []
@@ -148,7 +169,7 @@ def blur_mask_outward(
         results.append(torch.from_numpy(np.array(blurred, dtype=np.float32, copy=True)))
 
     output = torch.stack(results)
-    return output[0] if restore_rank_two else output
+    return (output[0] if restore_rank_two else output), grow_amount
 
 
 class BlurMaskOutward(io.ComfyNode):
@@ -160,11 +181,20 @@ class BlurMaskOutward(io.ComfyNode):
             category="Utility Suite/Mask",
             inputs=[
                 io.Mask.Input("mask"),
-                io.Float.Input("blur_radius", default=0.0, min=0.0, max=100.0, step=0.1),
+                io.Float.Input(
+                    "blur_radius",
+                    default=BLUR_RADIUS_DEFAULT,
+                    min=BLUR_RADIUS_MIN,
+                    max=BLUR_RADIUS_MAX,
+                    step=BLUR_RADIUS_STEP,
+                ),
                 io.Boolean.Input("tapered_corners", default=False),
                 io.Boolean.Input("outward", default=True),
             ],
-            outputs=[io.Mask.Output("mask", display_name="mask")],
+            outputs=[
+                io.Mask.Output("mask", display_name="mask"),
+                io.Int.Output("grow_amount", display_name="grow_amount"),
+            ],
         )
 
     @classmethod
@@ -175,12 +205,48 @@ class BlurMaskOutward(io.ComfyNode):
         tapered_corners: bool,
         outward: bool,
     ) -> io.NodeOutput:
-        return io.NodeOutput(blur_mask_outward(mask, blur_radius, tapered_corners, outward))
+        result, grow_amount = _blur_mask_outward_with_amount(
+            mask, blur_radius, tapered_corners, outward
+        )
+        return io.NodeOutput(result, grow_amount)
+
+
+class BlurMaskOutwardGrowAmount(io.ComfyNode):
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="UtilitySuiteBlurMaskOutwardGrowAmount",
+            display_name="Blur Mask Outward Grow Amount",
+            category="Utility Suite/Mask",
+            inputs=[
+                io.Float.Input(
+                    "blur_radius",
+                    default=BLUR_RADIUS_DEFAULT,
+                    min=BLUR_RADIUS_MIN,
+                    max=BLUR_RADIUS_MAX,
+                    step=BLUR_RADIUS_STEP,
+                ),
+                io.Boolean.Input("tapered_corners", default=False),
+                io.Boolean.Input("outward", default=True),
+            ],
+            outputs=[io.Int.Output("grow_amount", display_name="grow_amount")],
+        )
+
+    @classmethod
+    def execute(
+        cls,
+        blur_radius: float,
+        tapered_corners: bool,
+        outward: bool,
+    ) -> io.NodeOutput:
+        return io.NodeOutput(outward_grow_amount(blur_radius, tapered_corners, outward))
 
 
 __all__ = [
     "BlurMaskOutward",
+    "BlurMaskOutwardGrowAmount",
     "_minimum_straight_compensation",
     "_minimum_tapered_compensation",
     "blur_mask_outward",
+    "outward_grow_amount",
 ]
