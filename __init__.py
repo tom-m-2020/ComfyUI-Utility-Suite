@@ -31,6 +31,7 @@ from .mask_fill_combined import MaskFillCombined
 from .mask_list import MaskFromList
 from .mask_tile_segs import MaskToTileSEGS
 from .preview_segs_regions import PreviewSEGSRegions
+from .reorder_batch_mask import ReorderBatchMask
 from .reorder_segs import ReorderSEGS
 from .reroute_optional import RerouteOptional
 from .restore_tile_segs_gaps import RestoreTileSEGSGaps
@@ -71,6 +72,7 @@ class UtilitySuiteExtension(ComfyExtension):
             PreviewSEGSRegions,
             RestoreTileSEGSGaps,
             RerouteOptional,
+            ReorderBatchMask,
             ReorderSEGS,
             SEGFromSEGS,
             SEGSOverlapToMASK,

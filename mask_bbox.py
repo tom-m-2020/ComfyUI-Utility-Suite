@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import comfy.utils
+import numpy as np
 import torch
 from comfy_api.latest import io
 
@@ -19,6 +20,21 @@ def nonzero_mask_bounds(mask: torch.Tensor) -> tuple[int, int, int, int] | None:
         int(coordinates[:, x_column].max().item()) + 1,
         int(coordinates[:, y_column].max().item()) + 1,
     )
+
+
+def quantized_mask_bounds(mask: torch.Tensor) -> tuple[int, int, int, int] | None:
+    if not isinstance(mask, torch.Tensor):
+        raise TypeError(f"Quantized mask bounds require a torch.Tensor, got {type(mask).__name__}.")
+    if mask.ndim != 2:
+        raise ValueError(f"Quantized mask bounds require one rank-2 mask, got shape {tuple(mask.shape)}.")
+    source = mask.detach().cpu()
+    if source.dtype == torch.bfloat16:
+        source = source.to(torch.float32)
+    quantized = (source.numpy() * 255.0).astype(np.uint8)
+    ys, xs = np.nonzero(quantized)
+    if len(xs) == 0:
+        return None
+    return int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
 
 
 def mask_bounding_box(

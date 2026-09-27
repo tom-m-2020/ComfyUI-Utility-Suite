@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+from numbers import Real
 from typing import Any, Literal
 
 from comfy_api.latest import io
@@ -8,13 +10,14 @@ from .segs_geometry import validated_segs
 
 SEGS = io.Custom("SEGS")
 Direction = Literal["clockwise", "counter_clockwise"]
-ORDERS = [
+SPATIAL_ORDERS = [
     "left_to_right_top_to_bottom",
     "clockwise",
     "counter_clockwise",
     "clockwise_outward",
     "counter_clockwise_outward",
 ]
+ORDERS = [*SPATIAL_ORDERS, "biggest", "smallest"]
 
 
 def rectangular_ring(
@@ -112,12 +115,35 @@ def _ordered_spans(
     return ordered, {span: index for index, span in enumerate(ordered)}
 
 
+def _bbox_area(entry: Any, index: int) -> Real:
+    if not hasattr(entry, "bbox") or entry.bbox is None:
+        raise TypeError(f"SEGS entry {index} has no bbox for size ordering.")
+    bbox = entry.bbox
+    if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+        raise TypeError(f"SEGS entry {index} bbox must contain exactly four numeric coordinates.")
+    if any(isinstance(value, bool) or not isinstance(value, Real) for value in bbox):
+        raise TypeError(f"SEGS entry {index} bbox must contain exactly four numeric coordinates.")
+    if any(not math.isfinite(float(value)) for value in bbox):
+        raise ValueError(f"SEGS entry {index} bbox coordinates must be finite, got {bbox}.")
+    x1, y1, x2, y2 = bbox
+    if x2 < x1 or y2 < y1:
+        raise ValueError(f"SEGS entry {index} bbox has reversed coordinates: {bbox}.")
+    return (x2 - x1) * (y2 - y1)
+
+
 def reorder_segs(segs: Any, order: str) -> tuple[Any, list[Any]]:
     source_shape, entries, crops = validated_segs(segs, "Reorder SEGS")
     if order not in ORDERS:
         raise ValueError(f"Unsupported Reorder SEGS order {order!r}; expected one of {ORDERS}.")
     if not entries:
         return source_shape, []
+    if order in ("biggest", "smallest"):
+        areas = [_bbox_area(entry, index) for index, entry in enumerate(entries)]
+        indices = sorted(
+            range(len(entries)),
+            key=lambda index: -areas[index] if order == "biggest" else areas[index],
+        )
+        return source_shape, [entries[index] for index in indices]
 
     row_spans, row_indices = _ordered_spans({(crop[1], crop[3]) for crop in crops}, "row")
     column_spans, column_indices = _ordered_spans({(crop[0], crop[2]) for crop in crops}, "column")

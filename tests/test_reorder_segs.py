@@ -102,6 +102,66 @@ class GridTraversalTests(unittest.TestCase):
 
 
 class ReorderSEGSTests(unittest.TestCase):
+    def test_biggest_and_smallest_use_bbox_area_with_stable_ties(self):
+        entries = [
+            segment(0, 0, 1)._replace(bbox=(0, 0, 10, 10)),
+            segment(0, 1, 2)._replace(bbox=(0, 0, 5, 10)),
+            segment(0, 2, 3)._replace(bbox=(0, 0, 20, 5)),
+            segment(0, 3, 4)._replace(bbox=(0.5, 0.5, 5.5, 10.5)),
+        ]
+        source_shape = (24, 50)
+        biggest = MODULE.reorder_segs((source_shape, entries), "biggest")
+        smallest = MODULE.reorder_segs((source_shape, entries), "smallest")
+        self.assertEqual([entry.label for entry in biggest[1]], ["1", "3", "2", "4"])
+        self.assertEqual([entry.label for entry in smallest[1]], ["2", "4", "1", "3"])
+
+    def test_size_order_ignores_crop_size_and_mask_occupancy(self):
+        thin = np.zeros((10, 10), dtype=np.float32)
+        thin[0, :] = 1
+        dense = np.ones((20, 20), dtype=np.float32)
+        large_bbox = segment(0, 0, 1)._replace(
+            cropped_mask=thin,
+            crop_region=(0, 0, 10, 10),
+            bbox=(0, 0, 40, 20),
+        )
+        large_crop = segment(0, 1, 2)._replace(
+            cropped_mask=dense,
+            crop_region=(20, 0, 80, 40),
+            bbox=(20, 0, 30, 10),
+        )
+        result = MODULE.reorder_segs(((50, 100), [large_crop, large_bbox]), "biggest")
+        self.assertEqual([entry.label for entry in result[1]], ["1", "2"])
+
+    def test_size_order_preserves_header_entry_identity_and_cardinality(self):
+        header = (24, 50)
+        entries = [
+            segment(0, 0, 1)._replace(bbox=(0, 0, 3, 4)),
+            segment(0, 1, 2)._replace(bbox=(0, 0, 8, 9)),
+            segment(0, 2, 3)._replace(bbox=(0, 0, 5, 5)),
+        ]
+        result = MODULE.reorder_segs((header, entries), "biggest")
+        self.assertIs(result[0], header)
+        self.assertEqual(len(result[1]), len(entries))
+        self.assertEqual([id(entry) for entry in result[1]], [id(entries[1]), id(entries[2]), id(entries[0])])
+
+    def test_empty_mask_segment_uses_existing_bbox_instead_of_zero_area(self):
+        empty = segment(0, 0, 1)._replace(
+            cropped_mask=np.zeros((10, 12), dtype=np.float32),
+            bbox=(0, 0, 12, 10),
+        )
+        nonempty = segment(0, 1, 2)._replace(
+            cropped_mask=np.ones((10, 12), dtype=np.float32),
+            bbox=(0, 0, 3, 4),
+        )
+        result = MODULE.reorder_segs(((24, 30), [nonempty, empty]), "biggest")
+        self.assertEqual([entry.label for entry in result[1]], ["1", "2"])
+
+    def test_size_order_validates_bbox_without_crop_fallback(self):
+        entry = segment(0, 0, 1)
+        for bbox in (None, (0, 0, 1), (0, 0, "x", 1), (0, 0, -1, 2), (0, 0, float("inf"), 2)):
+            with self.subTest(bbox=bbox), self.assertRaises((TypeError, ValueError)):
+                MODULE.reorder_segs(((20, 20), [entry._replace(bbox=bbox)]), "biggest")
+
     def test_all_orders_preserve_shape_identity_fields_and_cardinality(self):
         entries = grid(3, 4)
         snapshots = [tuple(entry) for entry in entries]
@@ -182,6 +242,16 @@ class ReorderSEGSTests(unittest.TestCase):
         self.assertEqual(len(result[1]), len(segs[1]))
         self.assertEqual({id(entry) for entry in result[1]}, {id(entry) for entry in segs[1]})
 
+    def test_mask_to_tile_segs_size_order_uses_generated_content_bbox(self):
+        mask = torch.zeros((1, 10, 20), dtype=torch.float32)
+        mask[:, 1:9, 1:8] = 1
+        mask[:, 3:6, 13:16] = 1
+        segs, _ = MASK_TILE.mask_to_tile_segs(mask, "uniform_grid", 10, 10, 0, 0, 2, 1, 0, 0, 2, 1)
+        self.assertEqual([tuple(entry.crop_region) for entry in segs[1]], [(0, 0, 10, 10), (10, 0, 20, 10)])
+        result = MODULE.reorder_segs((segs[0], list(reversed(segs[1]))), "biggest")
+        self.assertIs(result[1][0], segs[1][0])
+        self.assertIs(result[1][1], segs[1][1])
+
     def test_filter_restore_reorder_interoperability(self):
         mask = torch.zeros((1, 12, 30), dtype=torch.float32)
         mask[:, :, :8] = 1
@@ -199,6 +269,8 @@ class ReorderSEGSTests(unittest.TestCase):
         self.assertEqual(schema.display_name, "Reorder SEGS")
         self.assertEqual(schema.category, "Utility Suite/SEGS")
         self.assertEqual([entry.io_type for entry in schema.inputs], ["SEGS", "COMBO"])
+        self.assertEqual(schema.inputs[1].options, MODULE.ORDERS)
+        self.assertEqual(MODULE.ORDERS[-2:], ["biggest", "smallest"])
         self.assertEqual([output.io_type for output in schema.outputs], ["SEGS"])
         self.assertFalse(schema.outputs[0].is_output_list)
 

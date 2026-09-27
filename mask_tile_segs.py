@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from comfy_api.latest import io
 
+from .mask_bbox import quantized_mask_bounds
 from .tiling import TileLayout, build_tile_layout
 
 SEGS = io.Custom("SEGS")
@@ -73,16 +74,15 @@ def _numpy_float(tensor: torch.Tensor) -> np.ndarray:
 
 
 def _content_bbox(mask: np.ndarray, crop_region: list[int]) -> tuple[int, int, int, int]:
-    quantized = (mask * 255.0).astype(np.uint8)
-    ys, xs = np.nonzero(quantized)
-    if len(xs) == 0:
+    bounds = quantized_mask_bounds(torch.from_numpy(mask))
+    if bounds is None:
         return tuple(crop_region)
     x0, y0 = crop_region[0], crop_region[1]
     return (
-        x0 + int(xs.min()),
-        y0 + int(ys.min()),
-        x0 + int(xs.max()) + 1,
-        y0 + int(ys.max()) + 1,
+        x0 + bounds[0],
+        y0 + bounds[1],
+        x0 + bounds[2],
+        y0 + bounds[3],
     )
 
 
