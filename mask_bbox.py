@@ -27,14 +27,29 @@ def quantized_mask_bounds(mask: torch.Tensor) -> tuple[int, int, int, int] | Non
         raise TypeError(f"Quantized mask bounds require a torch.Tensor, got {type(mask).__name__}.")
     if mask.ndim != 2:
         raise ValueError(f"Quantized mask bounds require one rank-2 mask, got shape {tuple(mask.shape)}.")
+    return quantized_mask_union_bounds(mask)
+
+
+def quantized_mask_union_bounds(mask: torch.Tensor) -> tuple[int, int, int, int] | None:
+    if not isinstance(mask, torch.Tensor):
+        raise TypeError(f"Quantized mask bounds require a torch.Tensor, got {type(mask).__name__}.")
+    if mask.ndim not in (2, 3):
+        raise ValueError(f"Quantized mask bounds require rank-2 or rank-3 MASK, got shape {tuple(mask.shape)}.")
     source = mask.detach().cpu()
     if source.dtype == torch.bfloat16:
         source = source.to(torch.float32)
     quantized = (source.numpy() * 255.0).astype(np.uint8)
-    ys, xs = np.nonzero(quantized)
-    if len(xs) == 0:
+    coordinates = np.nonzero(quantized)
+    if len(coordinates[0]) == 0:
         return None
-    return int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
+    y_coordinates = coordinates[-2]
+    x_coordinates = coordinates[-1]
+    return (
+        int(x_coordinates.min()),
+        int(y_coordinates.min()),
+        int(x_coordinates.max()) + 1,
+        int(y_coordinates.max()) + 1,
+    )
 
 
 def mask_bounding_box(
@@ -51,9 +66,9 @@ def mask_bounding_box(
     if padding < 0:
         raise ValueError(f"padding must be nonnegative, got {padding}.")
 
-    bounds = nonzero_mask_bounds(mask)
+    bounds = quantized_mask_union_bounds(mask)
     if bounds is None:
-        raise ValueError("Mask to Bounding Box requires at least one nonzero mask pixel.")
+        raise ValueError("Mask to Bounding Box requires at least one nonzero quantized mask pixel.")
 
     source_height, source_width = mask.shape[1:]
     bx0, by0, bx1, by1 = bounds
@@ -97,7 +112,7 @@ class MaskToBoundingBox(io.ComfyNode):
             node_id="UtilitySuiteMaskToBoundingBox",
             display_name="Mask to Bounding Box",
             category="Utility Suite/Mask",
-            description="Crops a mask and optional image to their shared nonzero bounds without blurring.",
+            description="Crops a mask and optional image to their shared 8-bit-quantized nonzero bounds.",
             inputs=[
                 io.Mask.Input("mask"),
                 io.Int.Input("padding", default=0, min=0, max=4096, step=1),

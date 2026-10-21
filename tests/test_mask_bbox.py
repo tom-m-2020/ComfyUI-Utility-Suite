@@ -3,6 +3,7 @@ import sys
 import unittest
 from pathlib import Path
 
+import numpy as np
 import torch
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -52,6 +53,43 @@ class MaskToBoundingBoxTests(unittest.TestCase):
         self.assertEqual(result[2:6], (2, 1, 9, 8))
         self.assertEqual(result[0].shape, (2, 8, 9))
 
+    def test_impact_uint8_quantization_controls_bounds_but_preserves_values(self):
+        mask = torch.zeros(1, 8, 10, dtype=torch.float32)
+        below = np.nextafter(np.float32(1.0 / 255.0), np.float32(0.0))
+        exact = np.float32(1.0 / 255.0)
+        above = np.nextafter(exact, np.float32(1.0))
+        mask[0, 1, 1] = float(below)
+        mask[0, 2, 3] = float(exact)
+        mask[0, 5, 8] = float(above)
+
+        result = MASK_BBOX.mask_bounding_box(mask, 0)
+
+        self.assertEqual(result[2:6], (3, 2, 6, 4))
+        self.assertEqual(result[0][0, 0, 0].item(), mask[0, 2, 3].item())
+        self.assertEqual(result[0][0, 3, 5].item(), mask[0, 5, 8].item())
+
+    def test_faint_values_below_one_over_255_are_absent_after_quantization(self):
+        mask = torch.zeros(1, 6, 7, dtype=torch.float32)
+        mask[0, 1, 1] = 0.001
+        mask[0, 4, 5] = 0.5
+        result = MASK_BBOX.mask_bounding_box(mask, 0)
+        self.assertEqual(result[2:6], (5, 4, 1, 1))
+
+    def test_soft_disconnected_regions_and_batch_items_share_quantized_union(self):
+        mask = torch.zeros(2, 9, 12, dtype=torch.float32)
+        mask[0, 2, 3] = 0.01
+        mask[0, 4, 6] = 0.5
+        mask[1, 7, 10] = 0.99
+        mask[1, 0, 0] = 0.002
+        result = MASK_BBOX.mask_bounding_box(mask, 0)
+        self.assertEqual(result[2:6], (3, 2, 8, 6))
+        self.assertTrue(torch.equal(result[0], mask[:, 2:8, 3:11]))
+
+    def test_only_sub_quantization_values_are_treated_as_empty(self):
+        mask = torch.full((2, 5, 6), 0.001, dtype=torch.float32)
+        with self.assertRaisesRegex(ValueError, "nonzero quantized mask pixel"):
+            MASK_BBOX.mask_bounding_box(mask, 0)
+
     def test_optional_image_is_cropped_and_batch_repeated(self):
         mask = torch.zeros(3, 8, 10)
         mask[:, 2:7, 4:9] = 1
@@ -75,7 +113,7 @@ class MaskToBoundingBoxTests(unittest.TestCase):
         self.assertEqual(result[1].shape, (1, 6, 8, 3))
 
     def test_empty_mask_fails_clearly(self):
-        with self.assertRaisesRegex(ValueError, "nonzero mask pixel"):
+        with self.assertRaisesRegex(ValueError, "nonzero quantized mask pixel"):
             MASK_BBOX.mask_bounding_box(torch.zeros(1, 8, 9), 0)
 
     def test_schema_has_no_blur_and_declares_bbox_lists(self):
