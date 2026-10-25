@@ -33,6 +33,14 @@ def append_list_items(accumulator: UtilityAnyList, items: list[Any] | tuple[Any,
     return accumulator.append_items(items)
 
 
+def accumulator_to_list(accumulator: UtilityAnyList | None) -> list[Any]:
+    if accumulator is None:
+        return []
+    if not isinstance(accumulator, UtilityAnyList):
+        raise TypeError(f"accumulator must be UTILITY_ANY_LIST, got {type(accumulator).__name__}.")
+    return list(accumulator.items)
+
+
 class ListAccumulatorAppend(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
@@ -71,7 +79,5 @@ class ListAccumulatorToList(io.ComfyNode):
         )
 
     @classmethod
-    def execute(cls, accumulator: UtilityAnyList) -> io.NodeOutput:
-        if not isinstance(accumulator, UtilityAnyList):
-            raise TypeError(f"accumulator must be UTILITY_ANY_LIST, got {type(accumulator).__name__}.")
-        return io.NodeOutput(list(accumulator.items))
+    def execute(cls, accumulator: UtilityAnyList | None) -> io.NodeOutput:
+        return io.NodeOutput(accumulator_to_list(accumulator))

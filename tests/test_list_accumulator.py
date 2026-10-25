@@ -73,6 +73,20 @@ class ListAccumulatorTests(unittest.TestCase):
         self.assertIs(output[0], masks[0])
         self.assertIs(output[1], masks[1])
 
+    def test_absent_accumulator_converts_to_empty_comfy_list(self):
+        output = ACCUMULATOR.ListAccumulatorToList.execute(None).result[0]
+        self.assertEqual(output, [])
+        self.assertIsInstance(output, list)
+
+    def test_empty_accumulator_converts_to_empty_comfy_list(self):
+        output = ACCUMULATOR.ListAccumulatorToList.execute(ACCUMULATOR.UtilityAnyList()).result[0]
+        self.assertEqual(output, [])
+        self.assertIsInstance(output, list)
+
+    def test_conversion_still_rejects_non_accumulator_values(self):
+        with self.assertRaisesRegex(TypeError, "UTILITY_ANY_LIST"):
+            ACCUMULATOR.ListAccumulatorToList.execute(object())
+
     def test_invalid_accumulator_transport_fails(self):
         with self.assertRaisesRegex(ValueError, "exactly one.*received 2"):
             ACCUMULATOR.ListAccumulatorAppend.execute(["item"], [object(), object()])
