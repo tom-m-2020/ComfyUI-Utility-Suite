@@ -29,6 +29,7 @@ from .mask_batch_combine import MaskBatchToMask
 from .mask_bbox import MaskToBoundingBox
 from .mask_draw import MaskDraw
 from .mask_fill_combined import MaskFillCombined
+from .mask_fill_holes import MaskFillHoles
 from .mask_list import MaskFromList
 from .mask_tile_segs import MaskToTileSEGS
 from .preview_segs_regions import PreviewSEGSRegions
@@ -68,6 +69,7 @@ class UtilitySuiteExtension(ComfyExtension):
             MaskToMaskBatch,
             MaskBatchToMask,
             MaskFillCombined,
+            MaskFillHoles,
             MaskDraw,
             MaskToTileSEGS,
             SEGSToBBOX,
