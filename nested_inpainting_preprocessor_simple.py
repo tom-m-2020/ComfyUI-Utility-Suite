@@ -5,6 +5,7 @@ from comfy_api.latest import io
 
 from .blur_mask_outward import blur_mask_outward
 from .mask_batch_combine import combine_mask_batch
+from .mask_bbox import quantized_mask_bounds
 from .reorder_batch_mask import reorder_batch_mask
 
 COVERAGE_TOLERANCE = 1e-6
@@ -50,11 +51,67 @@ def _coverage_is_complete(bg_init: torch.Tensor, masks: torch.Tensor) -> bool:
     return bool(torch.all((1.0 - covered) <= COVERAGE_TOLERANCE).item())
 
 
+def _blur_for_area(
+    mask: torch.Tensor,
+    max_mask_size_a: int,
+    max_mask_size_b: int,
+    blur_a: float,
+    blur_b: float,
+    blur_c: float,
+) -> float:
+    bounds = quantized_mask_bounds(mask)
+    if bounds is None:
+        return blur_a
+    width = bounds[2] - bounds[0]
+    height = bounds[3] - bounds[1]
+    area = width * height
+    if area > max_mask_size_b * max_mask_size_b:
+        return blur_c
+    if area > max_mask_size_a * max_mask_size_a:
+        return blur_b
+    return blur_a
+
+
+def _blur_by_area(
+    masks: torch.Tensor,
+    max_mask_size_a: int,
+    max_mask_size_b: int,
+    blur_a: float,
+    blur_b: float,
+    blur_c: float,
+    tapered_corners: bool,
+) -> torch.Tensor:
+    radii = [
+        _blur_for_area(
+            item,
+            max_mask_size_a,
+            max_mask_size_b,
+            blur_a,
+            blur_b,
+            blur_c,
+        )
+        for item in masks
+    ]
+    result = torch.empty_like(masks)
+    for radius in dict.fromkeys(radii):
+        indices = [index for index, selected in enumerate(radii) if selected == radius]
+        selection = torch.tensor(indices, dtype=torch.long)
+        blurred = blur_mask_outward(
+            torch.index_select(masks, 0, selection), radius, tapered_corners, True
+        )
+        result.index_copy_(0, selection, blurred)
+    return result
+
+
 def nested_inpainting_preprocess_simple(
     mask: torch.Tensor,
     reorder_first: bool,
     tapered_corners: bool,
-    blur: float,
+    max_mask_size_a: int,
+    max_mask_size_b: int,
+    blur_a: float,
+    blur_b: float,
+    blur_c: float,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, bool]:
     source = _validate_mask_batch(mask)
     if reorder_first:
@@ -64,7 +121,15 @@ def nested_inpainting_preprocess_simple(
 
     union_init = combine_mask_batch(source)
     bg_init = 1.0 - union_init
-    blurred = blur_mask_outward(source, blur, tapered_corners, True)
+    blurred = _blur_by_area(
+        source,
+        max_mask_size_a,
+        max_mask_size_b,
+        blur_a,
+        blur_b,
+        blur_c,
+        tapered_corners,
+    )
 
     values = torch.cat((bg_init, blurred), dim=0)
     supports = values > 0.0
@@ -100,7 +165,11 @@ class NestedInpaintingPreprocessorSimple(io.ComfyNode):
                 io.Mask.Input("mask"),
                 io.Boolean.Input("reorder_first", default=False),
                 io.Boolean.Input("tapered_corners", default=True),
-                io.Float.Input("blur", default=6.0, min=0.0, max=100.0, step=0.1),
+                io.Int.Input("max_mask_size_a", default=256, min=1, max=16384, step=1),
+                io.Int.Input("max_mask_size_b", default=512, min=1, max=16384, step=1),
+                io.Float.Input("blur_a", default=4.0, min=0.0, max=100.0, step=0.1),
+                io.Float.Input("blur_b", default=6.0, min=0.0, max=100.0, step=0.1),
+                io.Float.Input("blur_c", default=10.0, min=0.0, max=100.0, step=0.1),
             ],
             outputs=[
                 io.Mask.Output("mask", display_name="MASK"),
@@ -118,11 +187,22 @@ class NestedInpaintingPreprocessorSimple(io.ComfyNode):
         mask: torch.Tensor,
         reorder_first: bool,
         tapered_corners: bool,
-        blur: float,
+        max_mask_size_a: int,
+        max_mask_size_b: int,
+        blur_a: float,
+        blur_b: float,
+        blur_c: float,
     ) -> io.NodeOutput:
         return io.NodeOutput(
             *nested_inpainting_preprocess_simple(
-                mask, reorder_first, tapered_corners, blur
+                mask,
+                reorder_first,
+                tapered_corners,
+                max_mask_size_a,
+                max_mask_size_b,
+                blur_a,
+                blur_b,
+                blur_c,
             )
         )
 

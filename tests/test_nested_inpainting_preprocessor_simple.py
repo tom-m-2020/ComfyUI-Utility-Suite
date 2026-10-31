@@ -22,7 +22,11 @@ def run(mask: torch.Tensor, **overrides):
     values = {
         "reorder_first": False,
         "tapered_corners": True,
-        "blur": 0.0,
+        "max_mask_size_a": 256,
+        "max_mask_size_b": 512,
+        "blur_a": 0.0,
+        "blur_b": 0.0,
+        "blur_c": 0.0,
     }
     values.update(overrides)
     return MODULE.nested_inpainting_preprocess_simple(mask, **values)
@@ -32,7 +36,11 @@ def reference_run(mask: torch.Tensor, **overrides):
     values = {
         "reorder_first": False,
         "tapered_corners": True,
-        "blur": 0.0,
+        "max_mask_size_a": 256,
+        "max_mask_size_b": 512,
+        "blur_a": 0.0,
+        "blur_b": 0.0,
+        "blur_c": 0.0,
     }
     values.update(overrides)
     source = MODULE._validate_mask_batch(mask)
@@ -51,8 +59,23 @@ def reference_run(mask: torch.Tensor, **overrides):
 
     union_init = PACKAGE.mask_batch_combine.combine_mask_batch(source)
     bg_init = 1.0 - union_init
-    blurred = PACKAGE.blur_mask_outward.blur_mask_outward(
-        source, values["blur"], values["tapered_corners"], True
+    blurred = torch.cat(
+        [
+            PACKAGE.blur_mask_outward.blur_mask_outward(
+                item.unsqueeze(0),
+                MODULE._blur_for_area(
+                    item,
+                    values["max_mask_size_a"],
+                    values["max_mask_size_b"],
+                    values["blur_a"],
+                    values["blur_b"],
+                    values["blur_c"],
+                ),
+                values["tapered_corners"],
+                True,
+            )
+            for item in source
+        ]
     )
     values_batch = torch.cat((bg_init, blurred))
     thresholded = values_batch > 0.0
@@ -90,7 +113,16 @@ class NestedInpaintingPreprocessorSimpleTests(unittest.TestCase):
         self.assertEqual(schema.category, "Utility Suite/Mask")
         self.assertEqual(
             [item.id for item in schema.inputs],
-            ["mask", "reorder_first", "tapered_corners", "blur"],
+            [
+                "mask",
+                "reorder_first",
+                "tapered_corners",
+                "max_mask_size_a",
+                "max_mask_size_b",
+                "blur_a",
+                "blur_b",
+                "blur_c",
+            ],
         )
         self.assertEqual(
             [item.id for item in schema.outputs],
@@ -113,7 +145,7 @@ class NestedInpaintingPreprocessorSimpleTests(unittest.TestCase):
         masks[2, 10:20, 23:30] = 1
 
         result, mask_no_bg, union_init, bg_init, bg_blurred, all_covered = run(
-            masks, blur=2.0
+            masks, blur_a=2.0, blur_b=2.0, blur_c=2.0
         )
 
         self.assertEqual(result.shape, (4, 24, 32))
@@ -138,8 +170,16 @@ class NestedInpaintingPreprocessorSimpleTests(unittest.TestCase):
         masks[3, 2:13, 32:44] = 1
         masks[4, 25:36, 7:24] = 1
 
-        actual = run(masks, reorder_first=True, blur=2.5)
-        expected = reference_run(masks, reorder_first=True, blur=2.5)
+        settings = {
+            "reorder_first": True,
+            "max_mask_size_a": 12,
+            "max_mask_size_b": 20,
+            "blur_a": 1.0,
+            "blur_b": 2.0,
+            "blur_c": 3.0,
+        }
+        actual = run(masks, **settings)
+        expected = reference_run(masks, **settings)
 
         for index in range(5):
             with self.subTest(output=index):
@@ -155,6 +195,37 @@ class NestedInpaintingPreprocessorSimpleTests(unittest.TestCase):
 
         self.assertTrue(MODULE._coverage_is_complete(bg_init, near_full))
         self.assertFalse(MODULE._coverage_is_complete(bg_init, visible_deficit))
+
+    def test_blur_radius_uses_previous_node_bbox_area_criteria(self):
+        small = torch.zeros(20, 20)
+        medium = torch.zeros(20, 20)
+        large = torch.zeros(20, 20)
+        small[1:5, 1:5] = 1
+        medium[1:8, 1:8] = 1
+        large[1:13, 1:13] = 1
+
+        settings = (5, 10, 1.0, 2.0, 3.0)
+        self.assertEqual(MODULE._blur_for_area(small, *settings), 1.0)
+        self.assertEqual(MODULE._blur_for_area(medium, *settings), 2.0)
+        self.assertEqual(MODULE._blur_for_area(large, *settings), 3.0)
+
+    def test_grouped_adaptive_blur_matches_individual_blurs(self):
+        masks = torch.zeros(3, 32, 40)
+        masks[0, 2:7, 2:7] = 1
+        masks[1, 2:14, 10:22] = 1
+        masks[2, 2:28, 14:38] = 1
+
+        actual = MODULE._blur_by_area(masks, 8, 20, 1.0, 2.0, 3.0, True)
+        expected = torch.cat(
+            [
+                PACKAGE.blur_mask_outward.blur_mask_outward(
+                    masks[index : index + 1], radius, True, True
+                )
+                for index, radius in enumerate((1.0, 2.0, 3.0))
+            ]
+        )
+
+        self.assertTrue(torch.equal(actual, expected))
 
     def test_singleton_and_zero_blur_are_supported(self):
         mask = torch.zeros(1, 20, 28)
