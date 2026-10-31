@@ -27,6 +27,7 @@ def run(mask: torch.Tensor, **overrides):
         "blur_a": 0.0,
         "blur_b": 0.0,
         "blur_c": 0.0,
+        "shrink": 0,
     }
     values.update(overrides)
     return MODULE.nested_inpainting_preprocess_simple(mask, **values)
@@ -41,6 +42,7 @@ def reference_run(mask: torch.Tensor, **overrides):
         "blur_a": 0.0,
         "blur_b": 0.0,
         "blur_c": 0.0,
+        "shrink": 0,
     }
     values.update(overrides)
     source = MODULE._validate_mask_batch(mask)
@@ -77,6 +79,7 @@ def reference_run(mask: torch.Tensor, **overrides):
             for item in source
         ]
     )
+    blurred = MODULE._shrink_masks(blurred, values["shrink"], values["tapered_corners"])
     values_batch = torch.cat((bg_init, blurred))
     thresholded = values_batch > 0.0
     outputs = []
@@ -122,6 +125,7 @@ class NestedInpaintingPreprocessorSimpleTests(unittest.TestCase):
                 "blur_a",
                 "blur_b",
                 "blur_c",
+                "shrink",
             ],
         )
         self.assertEqual(
@@ -226,6 +230,48 @@ class NestedInpaintingPreprocessorSimpleTests(unittest.TestCase):
         )
 
         self.assertTrue(torch.equal(actual, expected))
+
+    def test_shrink_matches_negative_core_grow_mask(self):
+        from comfy_extras.nodes_mask import GrowMask
+
+        masks = torch.zeros(2, 25, 31)
+        masks[0, 4:20, 5:24] = 1
+        masks[1, 7:23, 9:28] = 1
+        masks[:, 10:14, 13:18] = 0.5
+
+        for tapered_corners in (False, True):
+            for amount in (0, 1, 3):
+                with self.subTest(
+                    tapered_corners=tapered_corners,
+                    amount=amount,
+                ):
+                    actual = MODULE._shrink_masks(masks, amount, tapered_corners)
+                    expected = GrowMask.execute(masks, -amount, tapered_corners).result[
+                        0
+                    ]
+                    self.assertTrue(torch.equal(actual, expected))
+
+    def test_shrink_occurs_before_matching_and_subtraction(self):
+        masks = torch.zeros(2, 24, 32)
+        masks[0, 4:20, 3:17] = 1
+        masks[1, 4:20, 15:29] = 1
+        settings = {
+            "blur_a": 3.0,
+            "blur_b": 3.0,
+            "blur_c": 3.0,
+            "shrink": 2,
+        }
+
+        actual = run(masks, **settings)
+        expected = reference_run(masks, **settings)
+
+        for index in range(5):
+            with self.subTest(output=index):
+                self.assertTrue(torch.equal(actual[index], expected[index]))
+
+    def test_rejects_negative_shrink_outside_schema(self):
+        with self.assertRaisesRegex(ValueError, "shrink must be nonnegative"):
+            run(torch.ones(1, 8, 8), shrink=-1)
 
     def test_singleton_and_zero_blur_are_supported(self):
         mask = torch.zeros(1, 20, 28)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import numpy as np
+import scipy.ndimage
 import torch
 from comfy_api.latest import io
 
@@ -103,6 +105,28 @@ def _blur_by_area(
     return result
 
 
+def _shrink_masks(
+    masks: torch.Tensor,
+    amount: int,
+    tapered_corners: bool,
+) -> torch.Tensor:
+    if amount < 0:
+        raise ValueError(
+            f"Nested Inpainting Preprocessor Simple shrink must be nonnegative, got {amount}."
+        )
+    if amount == 0:
+        return masks
+    corner = 0 if tapered_corners else 1
+    footprint = np.array([[corner, 1, corner], [1, 1, 1], [corner, 1, corner]])
+    results = []
+    for item in masks:
+        output = item.numpy()
+        for _ in range(amount):
+            output = scipy.ndimage.grey_erosion(output, footprint=footprint)
+        results.append(torch.from_numpy(output))
+    return torch.stack(results)
+
+
 def nested_inpainting_preprocess_simple(
     mask: torch.Tensor,
     reorder_first: bool,
@@ -112,6 +136,7 @@ def nested_inpainting_preprocess_simple(
     blur_a: float,
     blur_b: float,
     blur_c: float,
+    shrink: int,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, bool]:
     source = _validate_mask_batch(mask)
     if reorder_first:
@@ -130,6 +155,7 @@ def nested_inpainting_preprocess_simple(
         blur_c,
         tapered_corners,
     )
+    blurred = _shrink_masks(blurred, shrink, tapered_corners)
 
     values = torch.cat((bg_init, blurred), dim=0)
     supports = values > 0.0
@@ -170,6 +196,7 @@ class NestedInpaintingPreprocessorSimple(io.ComfyNode):
                 io.Float.Input("blur_a", default=4.0, min=0.0, max=100.0, step=0.1),
                 io.Float.Input("blur_b", default=6.0, min=0.0, max=100.0, step=0.1),
                 io.Float.Input("blur_c", default=10.0, min=0.0, max=100.0, step=0.1),
+                io.Int.Input("shrink", default=0, min=0, max=16384, step=1),
             ],
             outputs=[
                 io.Mask.Output("mask", display_name="MASK"),
@@ -192,6 +219,7 @@ class NestedInpaintingPreprocessorSimple(io.ComfyNode):
         blur_a: float,
         blur_b: float,
         blur_c: float,
+        shrink: int,
     ) -> io.NodeOutput:
         return io.NodeOutput(
             *nested_inpainting_preprocess_simple(
@@ -203,6 +231,7 @@ class NestedInpaintingPreprocessorSimple(io.ComfyNode):
                 blur_a,
                 blur_b,
                 blur_c,
+                shrink,
             )
         )
 
