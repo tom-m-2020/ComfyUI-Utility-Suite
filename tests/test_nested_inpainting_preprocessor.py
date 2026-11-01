@@ -161,7 +161,16 @@ def reference_run(mask: torch.Tensor, **overrides):
     all_covered = MODULE._is_empty(
         1.0 - MODULE._add(bg_init, PACKAGE.mask_batch_combine.combine_mask_batch(result))
     )
-    return (result, mask_and_bg, union_init, bg_init, bg_blurred, all_covered, *diagnostics)
+    return (
+        result,
+        mask_and_bg,
+        union_init,
+        bg_init,
+        bg_blurred,
+        all_covered,
+        *diagnostics,
+        source,
+    )
 
 
 class NestedInpaintingPreprocessorTests(unittest.TestCase):
@@ -203,6 +212,7 @@ class NestedInpaintingPreprocessorTests(unittest.TestCase):
                 "zeroth_match_index",
                 "zeroth_match_count",
                 "zeroth_counter_mask",
+                "reordered_init",
             ],
         )
         self.assertTrue(schema.outputs[9].is_output_list)
@@ -226,6 +236,7 @@ class NestedInpaintingPreprocessorTests(unittest.TestCase):
         self.assertEqual(result[9], [])
         self.assertEqual(result[10], 0)
         self.assertEqual(result[11].shape, (0, 24, 32))
+        self.assertTrue(torch.equal(result[12], mask))
 
     def test_zeroth_outputs_match_first_parent_iteration_boundaries(self):
         masks = torch.zeros(3, 32, 40)
@@ -236,7 +247,8 @@ class NestedInpaintingPreprocessorTests(unittest.TestCase):
         result = run(masks, dummy_blur_a=1.5, counter_blur_a=1.0)
 
         final, _, union_init, bg_init, bg_blurred, all_covered = result[:6]
-        zeroth_dummy, zeroth_minus, zeroth_pixelwise, indices, count, zeroth_counter = result[6:]
+        zeroth_dummy, zeroth_minus, zeroth_pixelwise, indices, count, zeroth_counter = result[6:12]
+        reordered_init = result[12]
         self.assertEqual(final.shape, masks.shape)
         self.assertEqual(zeroth_dummy.shape, (2, 32, 40))
         self.assertEqual(zeroth_minus.shape, (1, 32, 40))
@@ -246,6 +258,11 @@ class NestedInpaintingPreprocessorTests(unittest.TestCase):
         self.assertEqual(indices, sorted(set(indices)))
         self.assertTrue(torch.equal(bg_init, 1.0 - union_init))
         self.assertTrue(torch.equal(bg_blurred, result[1][0:1]))
+        expected_reordered_init = PACKAGE.reorder_batch_mask.reorder_batch_mask(
+            MODULE._remove_later_overlaps(MODULE._threshold(masks, 0.0)),
+            "biggest",
+        )
+        self.assertTrue(torch.equal(reordered_init, expected_reordered_init))
         self.assertIsInstance(all_covered, bool)
 
     def test_reorder_first_changes_overlap_ownership(self):
@@ -267,7 +284,7 @@ class NestedInpaintingPreprocessorTests(unittest.TestCase):
 
         result = run(masks)
 
-        for output_index in (0, 1, 2, 3, 4, 6, 7, 8, 11):
+        for output_index in (0, 1, 2, 3, 4, 6, 7, 8, 11, 12):
             self.assertEqual(result[output_index].dtype, torch.float32)
             self.assertEqual(result[output_index].device.type, "cpu")
         self.assertEqual(result[0].shape, masks.shape)
