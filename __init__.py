@@ -43,6 +43,7 @@ from .reroute_optional import RerouteOptional
 from .restore_tile_segs_gaps import RestoreTileSEGSGaps
 from .seg_from_segs import SEGFromSEGS
 from .segs_bbox import SEGSToBBOX
+from .segs_change_ratio import SEGSChangeRatio
 from .segs_overlap_to_mask import SEGSOverlapToMASK
 from .tiling import ImageTileBatch, ImageUntileBatch
 
@@ -81,6 +82,7 @@ class UtilitySuiteExtension(ComfyExtension):
             NestedInpaintingPreprocessor,
             NestedInpaintingPreprocessorSimple,
             SEGSToBBOX,
+            SEGSChangeRatio,
             FilterTileSEGS,
             PreviewSEGSRegions,
             RestoreTileSEGSGaps,

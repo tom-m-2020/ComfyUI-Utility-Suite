@@ -113,6 +113,7 @@ class ImageBatchListTests(unittest.TestCase):
             "UtilitySuiteSEGFromSEGS",
             "UtilitySuiteSEGSOverlapToMASK",
             "UtilitySuiteSEGSToBBOX",
+            "UtilitySuiteSEGSChangeRatio",
                 "UtilitySuiteBBOXListToCollection",
             "UtilitySuiteBBOXCollectionToList",
             "UtilitySuiteBBOXCoordinates",
