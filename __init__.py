@@ -12,6 +12,7 @@ from .any_pipe import (
 )
 from .bbox_coordinates import BBOXCoordinates
 from .bbox_transport import BBOXCollectionToList, BBOXListToCollection
+from .batch_mask_to_segs_comparison import BatchMaskToSEGSWithComparison
 from .blur_mask_outward import BlurMaskOutward, BlurMaskOutwardGrowAmount
 from .bridge_masks import BridgeMasks
 from .combine_masks_segs import CombineMasksSEGSAndMASK, CombineMasksSEGSAndSEGS
@@ -53,6 +54,7 @@ class UtilitySuiteExtension(ComfyExtension):
             ImageTileBatch,
             ImageUntileBatch,
             BridgeMasks,
+            BatchMaskToSEGSWithComparison,
             BlurMaskOutward,
             BlurMaskOutwardGrowAmount,
             CombineMasksSEGSAndMASK,
