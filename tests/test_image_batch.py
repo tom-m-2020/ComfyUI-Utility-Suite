@@ -83,6 +83,7 @@ class ImageBatchListTests(unittest.TestCase):
                 "UtilitySuiteCombineMasksSEGSAndMASK",
                 "UtilitySuiteCombineMasksSEGSAndSEGS",
                 "UtilitySuiteEmptyLatentFromVAE",
+            "UtilitySuiteEachMaskToMaskBatch",
                 "UtilitySuiteFeatherMaskFromBoundary",
                 "UtilitySuiteImageListToImageBatch",
                 "UtilitySuiteImageBatchToImageList",
