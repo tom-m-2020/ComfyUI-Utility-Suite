@@ -103,7 +103,7 @@ def reference_run(mask: torch.Tensor, **overrides):
         )
     outputs.append(values_batch[-1:])
     result = torch.cat(outputs)
-    return result, result[1:], union_init, bg_init, result[0:1]
+    return result, result[1:], union_init, bg_init, result[0:1], source
 
 
 class NestedInpaintingPreprocessorSimpleTests(unittest.TestCase):
@@ -137,6 +137,7 @@ class NestedInpaintingPreprocessorSimpleTests(unittest.TestCase):
                 "bg_init",
                 "bg_blurred",
                 "all_covered",
+                "reordered_init",
             ],
         )
         nodes = asyncio.run(PACKAGE.UtilitySuiteExtension().get_node_list())
@@ -148,12 +149,19 @@ class NestedInpaintingPreprocessorSimpleTests(unittest.TestCase):
         masks[1, 7:21, 12:25] = 1
         masks[2, 10:20, 23:30] = 1
 
-        result, mask_no_bg, union_init, bg_init, bg_blurred, all_covered = run(
-            masks, blur_a=2.0, blur_b=2.0, blur_c=2.0
-        )
+        (
+            result,
+            mask_no_bg,
+            union_init,
+            bg_init,
+            bg_blurred,
+            all_covered,
+            reordered_init,
+        ) = run(masks, blur_a=2.0, blur_b=2.0, blur_c=2.0)
 
         self.assertEqual(result.shape, (4, 24, 32))
         self.assertEqual(mask_no_bg.shape, masks.shape)
+        self.assertEqual(reordered_init.shape, masks.shape)
         self.assertEqual(union_init.shape, (1, 24, 32))
         self.assertEqual(bg_init.shape, (1, 24, 32))
         self.assertEqual(bg_blurred.shape, (1, 24, 32))
@@ -164,6 +172,11 @@ class NestedInpaintingPreprocessorSimpleTests(unittest.TestCase):
             result.untyped_storage().data_ptr(), bg_blurred.untyped_storage().data_ptr()
         )
         self.assertTrue(torch.equal(bg_init, 1.0 - union_init))
+        expected_reordered_init = PACKAGE.reorder_batch_mask.reorder_batch_mask(
+            MODULE._remove_later_overlaps((masks > 0.0).to(torch.float32)),
+            "biggest",
+        )
+        self.assertTrue(torch.equal(reordered_init, expected_reordered_init))
         self.assertIsInstance(all_covered, bool)
 
     def test_optimized_path_matches_literal_topology_reference(self):
@@ -191,6 +204,7 @@ class NestedInpaintingPreprocessorSimpleTests(unittest.TestCase):
                     torch.allclose(actual[index], expected[index], atol=1e-7, rtol=0.0)
                 )
         self.assertTrue(actual[5])
+        self.assertTrue(torch.equal(actual[6], expected[5]))
 
     def test_coverage_tolerates_only_float_noise(self):
         bg_init = torch.zeros(1, 3, 4)
@@ -268,6 +282,7 @@ class NestedInpaintingPreprocessorSimpleTests(unittest.TestCase):
         for index in range(5):
             with self.subTest(output=index):
                 self.assertTrue(torch.equal(actual[index], expected[index]))
+        self.assertTrue(torch.equal(actual[6], expected[5]))
 
     def test_rejects_negative_shrink_outside_schema(self):
         with self.assertRaisesRegex(ValueError, "shrink must be nonnegative"):
@@ -284,6 +299,7 @@ class NestedInpaintingPreprocessorSimpleTests(unittest.TestCase):
         self.assertTrue(torch.equal(result[2], mask))
         self.assertTrue(torch.equal(result[3], 1.0 - mask))
         self.assertTrue(result[5])
+        self.assertTrue(torch.equal(result[6], mask))
 
     def test_reorder_first_changes_overlap_ownership(self):
         masks = torch.zeros(2, 28, 36)

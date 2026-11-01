@@ -137,12 +137,21 @@ def nested_inpainting_preprocess_simple(
     blur_b: float,
     blur_c: float,
     shrink: int,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, bool]:
+) -> tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    bool,
+    torch.Tensor,
+]:
     source = _validate_mask_batch(mask)
     if reorder_first:
         source = reorder_batch_mask(source, "biggest")
     source = (source > 0.0).to(torch.float32)
     source = reorder_batch_mask(_remove_later_overlaps(source), "biggest")
+    reordered_init = source
 
     union_init = combine_mask_batch(source)
     bg_init = 1.0 - union_init
@@ -176,7 +185,15 @@ def nested_inpainting_preprocess_simple(
     mask_no_bg = result[1:]
     bg_blurred = result[0:1]
     all_covered = _coverage_is_complete(bg_init, result)
-    return result, mask_no_bg, union_init, bg_init, bg_blurred, all_covered
+    return (
+        result,
+        mask_no_bg,
+        union_init,
+        bg_init,
+        bg_blurred,
+        all_covered,
+        reordered_init,
+    )
 
 
 class NestedInpaintingPreprocessorSimple(io.ComfyNode):
@@ -205,6 +222,7 @@ class NestedInpaintingPreprocessorSimple(io.ComfyNode):
                 io.Mask.Output("bg_init", display_name="bg_init"),
                 io.Mask.Output("bg_blurred", display_name="bg_blurred"),
                 io.Boolean.Output("all_covered", display_name="all_covered"),
+                io.Mask.Output("reordered_init", display_name="reordered_init"),
             ],
         )
 
