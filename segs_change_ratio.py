@@ -143,7 +143,7 @@ def _replace_segment(
 ) -> Any:
     mask = _project_mask(source_mask, source_crop, target_crop)
     if feather is not None:
-        mask = np.maximum(mask, feather)
+        mask = mask * feather
     replacements = {
         "cropped_mask": mask,
         "crop_region": list(target_crop),

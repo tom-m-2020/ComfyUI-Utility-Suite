@@ -161,9 +161,8 @@ class SEGSChangeRatioTests(unittest.TestCase):
         expected[308:420, 496:528] = 0.625
         self.assertTrue(np.array_equal(reconstructed, expected))
 
-    def test_feather_overlap_is_complementary_and_max_preserves_mask(self):
-        mask = np.zeros((512, 512), dtype=np.float32)
-        mask[100:120, 240:272] = 0.9
+    def test_feather_overlap_multiplies_existing_soft_mask(self):
+        mask = np.full((512, 512), 0.8, dtype=np.float32)
         source = segment((256, 108, 768, 620), mask)
 
         result = run(
@@ -182,28 +181,26 @@ class SEGSChangeRatioTests(unittest.TestCase):
             y, overlap_start - left.crop_region[0] : overlap_end - left.crop_region[0]
         ]
         right_values = right.cropped_mask[y, : overlap_end - overlap_start]
-        self.assertTrue(np.allclose(left_values + right_values, 1.0))
-        self.assertEqual(float(left_values[0]), 1.0)
+        self.assertTrue(np.allclose(left_values + right_values, 0.8))
+        self.assertEqual(float(left_values[0]), float(np.float32(0.8)))
         self.assertEqual(float(left_values[-1]), 0.0)
         self.assertEqual(float(right_values[0]), 0.0)
-        self.assertEqual(float(right_values[-1]), 1.0)
-        global_x = 500
-        global_y = 215
-        self.assertGreaterEqual(
-            float(
-                left.cropped_mask[
-                    global_y - left.crop_region[1], global_x - left.crop_region[0]
-                ]
-            ),
-            float(np.float32(0.9)),
+        self.assertEqual(float(right_values[-1]), float(np.float32(0.8)))
+
+    def test_feather_overlap_multiplies_ramps_at_two_axis_corner(self):
+        record = PACKAGE.tiling.SpatialTileRecord(
+            row=0,
+            column=0,
+            source_rect=PACKAGE.tiling.Rect(0, 0, 5, 5),
+            valid_rect=PACKAGE.tiling.Rect(0, 0, 5, 5),
+            neighbor_overlaps=PACKAGE.tiling.NeighborOverlaps(0, 0, 3, 3),
         )
-        self.assertGreaterEqual(
-            float(
-                right.cropped_mask[
-                    global_y - right.crop_region[1], global_x - right.crop_region[0]
-                ]
-            ),
-            float(np.float32(0.9)),
+        feather = MODULE._feather_mask(record)
+        ramp = np.array([1.0, 0.5, 0.0], dtype=np.float32)
+
+        self.assertTrue(np.array_equal(feather[:2, :2], np.ones((2, 2))))
+        self.assertTrue(
+            np.array_equal(feather[-3:, -3:], ramp[:, None] * ramp[None, :])
         )
 
     def test_multiple_entries_expand_in_place_and_preserve_order(self):
