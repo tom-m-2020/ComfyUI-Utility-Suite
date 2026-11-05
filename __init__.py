@@ -20,6 +20,7 @@ from .empty_latent_vae import EmptyLatentFromVAE
 from .each_mask_to_mask_batch import EachMaskToMaskBatch
 from .feather_mask_boundary import FeatherMaskFromBoundary
 from .filter_tile_segs import FilterTileSEGS
+from .guide_size_seg_elt import GuideSizeSEGELT
 from .image_batch import ImageBatchToImageList, ImageListToImageBatch
 from .input_kind import ListBatchInspector
 from .invert_mask_segs import InvertMaskSEGS
@@ -85,6 +86,7 @@ class UtilitySuiteExtension(ComfyExtension):
             SEGSToBBOX,
             SEGSChangeRatio,
             FilterTileSEGS,
+            GuideSizeSEGELT,
             PreviewSEGSRegions,
             RestoreTileSEGSGaps,
             RerouteOptional,
