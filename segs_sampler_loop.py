@@ -445,6 +445,10 @@ class SEGSSamplerLoopEnd(io.ComfyNode):
             *_process_iteration(loop, noise, guider, sampler, sigmas, latent, vae, feather, tiled_decode, operation)
         )
 
+    @classmethod
+    def fingerprint_inputs(cls, **kwargs):
+        return float("NaN")
+
 
 class SEGSSamplerLoopInitialize(io.ComfyNode):
     @classmethod

@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import importlib.util
 import sys
 import unittest
@@ -89,14 +90,14 @@ class GraphLatent:
 
     @classmethod
     def INPUT_TYPES(cls):
-        return {"required": {"image": ("IMAGE",)}}
+        return {"required": {"image": ("IMAGE",), "amount": ("FLOAT", {"default": 0.0})}}
 
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "execute"
 
-    def execute(self, image):
+    def execute(self, image, amount):
         self.seen.append(image.clone())
-        return ({"samples": image},)
+        return ({"samples": image + amount},)
 
 
 class GraphCapture:
@@ -212,6 +213,7 @@ class SEGSSamplerLoopTests(unittest.TestCase):
         defaults = {item.id: getattr(item, "default", None) for item in start.inputs}
         self.assertEqual((defaults["start_index"], defaults["max_iteration"]), (0, -1))
         self.assertIn("terminations", [item.id for item in end.inputs])
+        self.assertNotEqual(MODULE.SEGSSamplerLoopEnd.fingerprint_inputs(), MODULE.SEGSSamplerLoopEnd.fingerprint_inputs())
         nodes = asyncio.run(PACKAGE.UtilitySuiteExtension().get_node_list())
         self.assertIn(MODULE.SEGSSamplerLoopStart, nodes)
         self.assertIn(MODULE.SEGSSamplerLoopEnd, nodes)
@@ -406,7 +408,7 @@ class SEGSSamplerLoopTests(unittest.TestCase):
                         "class_type": "UtilitySuiteSEGSSamplerLoopStart",
                         "inputs": {"image": ["source", 0], "segs": ["source", 1], "start_index": 0, "max_iteration": -1},
                     },
-                    latent: {"class_type": "LoopGraphLatent", "inputs": {"image": [start, 5]}},
+                    latent: {"class_type": "LoopGraphLatent", "inputs": {"image": [start, 5], "amount": 0.0}},
                     "termination": {"class_type": "LoopGraphTermination", "inputs": {"image": [start, 5]}},
                     end: {
                         "class_type": "UtilitySuiteSEGSSamplerLoopEnd",
@@ -440,6 +442,55 @@ class SEGSSamplerLoopTests(unittest.TestCase):
         }
         with self.assertRaises(LoopValidationError):
             validate_loops(prompt, {"end", "escape"}, prompt, {"start"}, {"end"})
+
+    def test_native_execution_invalidates_when_body_setting_changes(self):
+        registered = {cls.define_schema().node_id: cls for cls in MODULE.LOOP_NODE_CLASSES}
+        registered.update({
+            "LoopGraphSource": GraphSource,
+            "LoopGraphComponents": GraphComponents,
+            "LoopGraphLatent": GraphLatent,
+            "LoopGraphCapture": GraphCapture,
+        })
+        image = torch.zeros((1, 4, 4, 3))
+        GraphSource.image = image
+        GraphSource.segs = ((4, 4), [segment((0, 0, 4, 4), value=-1)])
+        GraphComponents.values = (object(), object(), object(), torch.tensor([1.0, 0.0]), FakeVAE())
+        GraphLatent.seen = []
+        GraphCapture.values = []
+        prompt = {
+            "source": {"class_type": "LoopGraphSource", "inputs": {}},
+            "components": {"class_type": "LoopGraphComponents", "inputs": {}},
+            "start": {
+                "class_type": "UtilitySuiteSEGSSamplerLoopStart",
+                "inputs": {"image": ["source", 0], "segs": ["source", 1], "start_index": 0, "max_iteration": -1},
+            },
+            "latent": {"class_type": "LoopGraphLatent", "inputs": {"image": ["start", 5], "amount": 0.0}},
+            "end": {
+                "class_type": "UtilitySuiteSEGSSamplerLoopEnd",
+                "inputs": {
+                    "loop": ["start", 0], "noise": ["components", 0], "guider": ["components", 1],
+                    "sampler": ["components", 2], "sigmas": ["components", 3], "latent": ["latent", 0],
+                    "vae": ["components", 4], "feather": 0, "tiled_decode": "disabled", "operation": "sequential",
+                },
+            },
+            "capture": {"class_type": "LoopGraphCapture", "inputs": {"image": ["end", 0], "segs": ["end", 1]}},
+        }
+        import server
+
+        with patch.dict(nodes.NODE_CLASS_MAPPINGS, registered), patch.object(
+            server.PromptServer, "instance", ProgressServer(), create=True
+        ), patch.object(MODULE, "_sample_once", sample_add_one):
+            executor = PromptExecutor(ExecutionServer(), cache_type=False, cache_args={"ram": 0, "ram_inactive": 0})
+            for amount in (0.0, 2.0):
+                current_prompt = copy.deepcopy(prompt)
+                current_prompt["latent"]["inputs"]["amount"] = amount
+                validate_loops(current_prompt, {"capture"}, current_prompt, {"start"}, {"end"})
+                executor.execute(current_prompt, f"loop-cache-{amount}", {}, ["capture"])
+                self.assertTrue(executor.success)
+
+        self.assertEqual(len(GraphLatent.seen), 2)
+        self.assertTrue(torch.all(GraphCapture.values[0][0] == 1))
+        self.assertTrue(torch.all(GraphCapture.values[1][0] == 3))
 
 
 if __name__ == "__main__":
