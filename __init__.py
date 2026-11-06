@@ -45,6 +45,7 @@ from .restore_tile_segs_gaps import RestoreTileSEGSGaps
 from .seg_from_segs import SEGFromSEGS
 from .segs_bbox import SEGSToBBOX
 from .segs_change_ratio import SEGSChangeRatio
+from .segs_insert_by_index import SEGSInsertByIndex
 from .segs_overlap_to_mask import SEGSOverlapToMASK
 from .segs_range_filter_plus import SEGSRangeFilterPlus
 from .segs_sampler_custom import SEGSSamplerCustom
@@ -88,6 +89,7 @@ class UtilitySuiteExtension(ComfyExtension):
             SEGSToBBOX,
             SEGSChangeRatio,
             FilterTileSEGS,
+            SEGSInsertByIndex,
             GuideSizeSEGELT,
             PreviewSEGSRegions,
             RestoreTileSEGSGaps,
