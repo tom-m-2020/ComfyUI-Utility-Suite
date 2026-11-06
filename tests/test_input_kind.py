@@ -38,6 +38,12 @@ class BatchSource:
     OUTPUT_IS_LIST = (False,)
 
 
+class MappedMaskSource:
+    RETURN_TYPES = ("MASK",)
+    OUTPUT_IS_LIST = (False,)
+    INPUT_IS_LIST = False
+
+
 class ListBatchInspectorTests(unittest.TestCase):
     def test_multi_item_and_empty_comfy_lists(self):
         self.assertEqual(INPUT_KIND.classify_list_or_batch([]), ("list", 0))
@@ -64,6 +70,8 @@ class ListBatchInspectorTests(unittest.TestCase):
             INPUT_KIND.classify_list_or_batch([torch.zeros(1, 8, 9)], "batch"),
             ("batch", 1),
         )
+        masks = [torch.zeros(1, 8, 9), torch.ones(1, 8, 9)]
+        self.assertEqual(INPUT_KIND.classify_list_or_batch(masks, "batch"), ("list", 2))
 
     def test_connected_source_output_declaration_resolves_singleton_ambiguity(self):
         import nodes
@@ -78,6 +86,45 @@ class ListBatchInspectorTests(unittest.TestCase):
         with patch.dict(nodes.NODE_CLASS_MAPPINGS, {"TestSource": ListSource}):
             self.assertEqual(INPUT_KIND._connected_output_kind(hidden), "list")
         with patch.dict(nodes.NODE_CLASS_MAPPINGS, {"TestSource": BatchSource}):
+            self.assertEqual(INPUT_KIND._connected_output_kind(hidden), "batch")
+
+    def test_mapped_non_list_mask_output_is_a_comfy_list(self):
+        import nodes
+
+        dynprompt = FakeDynamicPrompt(
+            {
+                "inspector": {"inputs": {"value": ["from_seg", 0]}},
+                "from_seg": {
+                    "class_type": "MappedMaskSource",
+                    "inputs": {"seg_elt": ["decompose", 0]},
+                },
+                "decompose": {"class_type": "ListSource", "inputs": {}},
+            }
+        )
+        hidden = SimpleNamespace(dynprompt=dynprompt, unique_id="inspector")
+        mappings = {"MappedMaskSource": MappedMaskSource, "ListSource": ListSource}
+        with patch.dict(nodes.NODE_CLASS_MAPPINGS, mappings):
+            self.assertEqual(INPUT_KIND._connected_output_kind(hidden), "list")
+
+    def test_whole_list_consumer_does_not_make_its_mask_output_a_list(self):
+        import nodes
+
+        class WholeListMaskSource(MappedMaskSource):
+            INPUT_IS_LIST = True
+
+        dynprompt = FakeDynamicPrompt(
+            {
+                "inspector": {"inputs": {"value": ["consumer", 0]}},
+                "consumer": {
+                    "class_type": "WholeListMaskSource",
+                    "inputs": {"items": ["list_source", 0]},
+                },
+                "list_source": {"class_type": "ListSource", "inputs": {}},
+            }
+        )
+        hidden = SimpleNamespace(dynprompt=dynprompt, unique_id="inspector")
+        mappings = {"WholeListMaskSource": WholeListMaskSource, "ListSource": ListSource}
+        with patch.dict(nodes.NODE_CLASS_MAPPINGS, mappings):
             self.assertEqual(INPUT_KIND._connected_output_kind(hidden), "batch")
 
     def test_executor_reports_zero_and_one_for_declared_lists_and_batches(self):
