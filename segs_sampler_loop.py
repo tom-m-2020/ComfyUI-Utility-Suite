@@ -229,6 +229,11 @@ def _expand_loop(
     graph = GraphBuilder()
     opener = dynprompt.get_node(opener_id)
     close = dynprompt.get_node(close_id)
+    termination_sources = [
+        value
+        for name, value in close.get("inputs", {}).items()
+        if name.startswith("termination") and is_link(value)
+    ]
     initialize = graph.node(
         "UtilitySuiteSEGSSamplerLoopInitialize",
         "initialize",
@@ -268,7 +273,13 @@ def _expand_loop(
         close_copy = graph.node(close["class_type"], f"{position}_{close_id}")
         close_copy.set_override_display_id(close_id)
         for name, input_value in close.get("inputs", {}).items():
+            if name.startswith("termination"):
+                continue
             close_copy.set_input(name, _copy_link(input_value, opener_id, iteration, copies))
+        dependencies = [
+            _copy_link(source, opener_id, iteration, copies)
+            for source in termination_sources
+        ]
         packed = graph.node(
             "UtilitySuiteSEGSSamplerLoopPackState",
             f"state_{position}",
@@ -276,13 +287,18 @@ def _expand_loop(
             image=close_copy.out(0),
             segs=close_copy.out(1),
             index=index,
+            **{f"dependency{dependency_index}": dependency for dependency_index, dependency in enumerate(dependencies)},
         )
         previous_state = packed.out(0)
         progress_inputs = {
             "start_id": opener_id,
             "position": position + 1,
             "total": len(indices),
-            "dependency": close_copy.out(0),
+            "dependency0": close_copy.out(0),
+            **{
+                f"dependency{dependency_index + 1}": dependency
+                for dependency_index, dependency in enumerate(dependencies)
+            },
         }
         if previous_progress is not None:
             progress_inputs["previous_progress"] = previous_progress
@@ -369,6 +385,15 @@ class SEGSSamplerLoopStart(io.ComfyNode):
 class SEGSSamplerLoopEnd(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
+        terminations = io.Autogrow.TemplatePrefix(
+            io.AnyType.Input(
+                "termination",
+                tooltip="Connect a preview or side-effect output that must execute on every SEG iteration. Its value is not returned.",
+            ),
+            prefix="termination",
+            min=0,
+            max=50,
+        )
         return io.Schema(
             node_id="UtilitySuiteSEGSSamplerLoopEnd",
             display_name="SEGS Sampler Loop End",
@@ -385,6 +410,12 @@ class SEGSSamplerLoopEnd(io.ComfyNode):
                 io.Int.Input("feather", default=5, min=0, max=100, step=1),
                 io.Combo.Input("tiled_decode", options=["disabled", "enabled"], default="disabled"),
                 io.Combo.Input("operation", options=["sequential", "individual"], default="sequential"),
+                io.Autogrow.Input(
+                    "terminations",
+                    template=terminations,
+                    optional=True,
+                    tooltip="Connect outputs that must execute on every SEG iteration. Their values are not returned.",
+                ),
             ],
             outputs=[io.Image.Output("image"), SEGS.Output("segs")],
             hidden=[_execution_list_hidden(), io.Hidden.unique_id],
@@ -403,6 +434,7 @@ class SEGSSamplerLoopEnd(io.ComfyNode):
         feather=5,
         tiled_decode="disabled",
         operation="sequential",
+        **kwargs,
     ):
         execution_list = cls.hidden.execution_list
         unique_id = cls.hidden.unique_id
@@ -452,10 +484,11 @@ class SEGSSamplerLoopPackState(io.ComfyNode):
             inputs=[LOOP_STATE.Input("previous_state"), io.Image.Input("image"), SEGS.Input("segs"), io.Int.Input("index")],
             outputs=[LOOP_STATE.Output()],
             is_dev_only=True,
+            accept_all_inputs=True,
         )
 
     @classmethod
-    def execute(cls, previous_state, image, segs, index):
+    def execute(cls, previous_state, image, segs, index, **kwargs):
         return io.NodeOutput(
             replace(
                 previous_state,

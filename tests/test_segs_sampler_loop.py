@@ -115,6 +115,21 @@ class GraphCapture:
         return ()
 
 
+class GraphTermination:
+    values: ClassVar[list] = []
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"image": ("IMAGE",)}}
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "execute"
+
+    def execute(self, image):
+        self.values.append(image.clone())
+        return (image,)
+
+
 class ExecutionServer:
     client_id = None
 
@@ -196,6 +211,7 @@ class SEGSSamplerLoopTests(unittest.TestCase):
         ])
         defaults = {item.id: getattr(item, "default", None) for item in start.inputs}
         self.assertEqual((defaults["start_index"], defaults["max_iteration"]), (0, -1))
+        self.assertIn("terminations", [item.id for item in end.inputs])
         nodes = asyncio.run(PACKAGE.UtilitySuiteExtension().get_node_list())
         self.assertIn(MODULE.SEGSSamplerLoopStart, nodes)
         self.assertIn(MODULE.SEGSSamplerLoopEnd, nodes)
@@ -361,6 +377,7 @@ class SEGSSamplerLoopTests(unittest.TestCase):
             "LoopGraphComponents": GraphComponents,
             "LoopGraphLatent": GraphLatent,
             "LoopGraphCapture": GraphCapture,
+            "LoopGraphTermination": GraphTermination,
         })
         import server
 
@@ -381,6 +398,7 @@ class SEGSSamplerLoopTests(unittest.TestCase):
                 GraphComponents.calls = 0
                 GraphLatent.seen = []
                 GraphCapture.values = []
+                GraphTermination.values = []
                 prompt = {
                     "source": {"class_type": "LoopGraphSource", "inputs": {}},
                     "components": {"class_type": "LoopGraphComponents", "inputs": {}},
@@ -389,6 +407,7 @@ class SEGSSamplerLoopTests(unittest.TestCase):
                         "inputs": {"image": ["source", 0], "segs": ["source", 1], "start_index": 0, "max_iteration": -1},
                     },
                     latent: {"class_type": "LoopGraphLatent", "inputs": {"image": [start, 5]}},
+                    "termination": {"class_type": "LoopGraphTermination", "inputs": {"image": [start, 5]}},
                     end: {
                         "class_type": "UtilitySuiteSEGSSamplerLoopEnd",
                         "inputs": {
@@ -396,6 +415,7 @@ class SEGSSamplerLoopTests(unittest.TestCase):
                             "sampler": ["components", 2], "sigmas": ["components", 3], "latent": [latent, 0],
                             "vae": ["components", 4], "feather": 0, "tiled_decode": "disabled",
                             "operation": "sequential",
+                            "termination0": ["termination", 0],
                         },
                     },
                     capture: {"class_type": "LoopGraphCapture", "inputs": {"image": [end, 0], "segs": [end, 1]}},
@@ -407,6 +427,8 @@ class SEGSSamplerLoopTests(unittest.TestCase):
                 self.assertEqual(len(GraphLatent.seen), 2)
                 self.assertEqual(GraphComponents.calls, 1)
                 self.assertEqual(initialize.call_count, 1)
+                self.assertEqual(len(GraphTermination.values), 2)
+                self.assertTrue(torch.all(GraphTermination.values[1][:, :, :2] == 1))
                 self.assertTrue(torch.all(GraphLatent.seen[1][:, :, :2] == 1))
                 self.assertTrue(torch.all(GraphCapture.values[0][0][:, :, 2:4] == 2))
 
