@@ -196,7 +196,9 @@ def _validate(image: torch.Tensor, segs: Any) -> tuple[Any, list[Any], list[tupl
         if not (0 <= x1 < x2 <= source_width and 0 <= y1 < y2 <= source_height):
             raise ValueError(f"SEGS entry {index} has invalid crop_region {region}.")
         bbox = tuple(int(value) for value in segment.bbox)
-        if len(bbox) != 4 or bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+        empty_bbox = bbox == (0, 0, 0, 0)
+        empty_mask = empty_bbox and not torch.any(torch.as_tensor(segment.cropped_mask) != 0)
+        if len(bbox) != 4 or not (empty_mask or (bbox[2] > bbox[0] and bbox[3] > bbox[1])):
             raise ValueError(f"SEGS entry {index} has invalid bbox {bbox}.")
         regions.append(region)
     return segs[0], list(segs[1]), regions

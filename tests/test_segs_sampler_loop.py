@@ -213,6 +213,13 @@ class SEGSSamplerLoopTests(unittest.TestCase):
             self.assertEqual(initialized._replace(cropped_image=None), original._replace(cropped_image=None))
         self.assertTrue(all(entry.cropped_image.min() == -1 for entry in original_entries))
 
+    def test_initialization_accepts_empty_mask_zero_bbox_sentinel(self):
+        image = torch.zeros((1, 4, 4, 3))
+        empty = segment((0, 0, 2, 2), mask=torch.zeros((2, 2)))._replace(bbox=(0, 0, 0, 0))
+        state = MODULE._initialize_state(image, ((4, 4), [empty]), 0, 1)
+        self.assertEqual(state.current_segs[1][0].bbox, (0, 0, 0, 0))
+        self.assertTrue(np.array_equal(state.current_segs[1][0].cropped_image, image[:, :2, :2].numpy()))
+
     def test_iteration_bounds(self):
         self.assertEqual(MODULE._iteration_bounds(10, 0, -1), (0, 10))
         self.assertEqual(MODULE._iteration_bounds(10, 3, -1), (3, 10))

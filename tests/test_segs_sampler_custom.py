@@ -206,7 +206,13 @@ class ProcessingTests(unittest.TestCase):
         image = torch.rand((1, 4, 4, 3))
         wrapper = object()
         entries = [
-            segment((0, 0, 2, 2), mask=torch.zeros((2, 2)), label="empty", wrapper=wrapper),
+            segment(
+                (0, 0, 2, 2),
+                mask=torch.zeros((2, 2)),
+                bbox=(0, 0, 0, 0),
+                label="empty",
+                wrapper=wrapper,
+            ),
             segment((2, 0, 4, 2), label="skip", wrapper=wrapper),
         ]
         with patch.object(MODULE, "_sample_once", side_effect=AssertionError("must skip")):
@@ -220,6 +226,12 @@ class ProcessingTests(unittest.TestCase):
             self.assertEqual(result.bbox, original.bbox)
             self.assertEqual(result.confidence, original.confidence)
             self.assertIs(result.control_net_wrapper, wrapper)
+
+    def test_zero_bbox_requires_an_empty_mask(self):
+        image = torch.zeros((1, 2, 2, 3))
+        entry = segment((0, 0, 2, 2), bbox=(0, 0, 0, 0))
+        with self.assertRaisesRegex(ValueError, "invalid bbox"):
+            MODULE.segs_sampler_custom(**arguments(image, [entry]))
 
     def test_noise_mask_and_composite_feather_are_independent(self):
         image = torch.zeros((1, 5, 5, 3))
