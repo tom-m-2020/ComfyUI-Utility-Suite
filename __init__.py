@@ -46,6 +46,7 @@ from .seg_from_segs import SEGFromSEGS
 from .segs_bbox import SEGSToBBOX
 from .segs_change_ratio import SEGSChangeRatio
 from .segs_overlap_to_mask import SEGSOverlapToMASK
+from .segs_range_filter_plus import SEGSRangeFilterPlus
 from .segs_sampler_custom import SEGSSamplerCustom
 from .segs_sampler_loop import LOOP_NODE_CLASSES
 from .tiling import ImageTileBatch, ImageUntileBatch
@@ -95,6 +96,7 @@ class UtilitySuiteExtension(ComfyExtension):
             ReorderSEGS,
             SEGFromSEGS,
             SEGSOverlapToMASK,
+            SEGSRangeFilterPlus,
             SEGSSamplerCustom,
             *LOOP_NODE_CLASSES,
             PipeSetAny,
