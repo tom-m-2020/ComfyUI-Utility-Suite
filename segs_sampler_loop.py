@@ -18,6 +18,11 @@ from .segs_sampler_custom import (
     _sample_once,
     _validate,
 )
+from .segs_sampler_unsample import (
+    SEGS_UNSAMPLE,
+    SEGSUnsampleOptions,
+    sample_with_optional_unsample,
+)
 
 SEGS = io.Custom("SEGS")
 SEG_ELT = io.Custom("SEG_ELT")
@@ -142,6 +147,7 @@ def _process_iteration(
     feather: int,
     tiled_decode: str,
     operation: str,
+    unsample: SEGSUnsampleOptions | None = None,
 ) -> tuple[torch.Tensor, Any]:
     if operation not in {"sequential", "individual"}:
         raise ValueError(f"Unsupported operation {operation!r}.")
@@ -164,7 +170,7 @@ def _process_iteration(
     crop_height = region[3] - region[1]
     crop_width = region[2] - region[0]
 
-    sampled = _sample_once(noise, guider, sampler, sigmas, latent)
+    sampled = sample_with_optional_unsample(noise, guider, sampler, sigmas, latent, unsample, _sample_once)
     decoded = _decode(vae, sampled, tiled_decode == "enabled")
     if decoded.shape[0] != 1:
         raise ValueError("SEGS Sampler Loop VAE decode must return one IMAGE per iteration.")
@@ -410,6 +416,7 @@ class SEGSSamplerLoopEnd(io.ComfyNode):
                 io.Int.Input("feather", default=5, min=0, max=100, step=1),
                 io.Combo.Input("tiled_decode", options=["disabled", "enabled"], default="disabled"),
                 io.Combo.Input("operation", options=["sequential", "individual"], default="sequential"),
+                SEGS_UNSAMPLE.Input("unsample", optional=True),
                 io.Autogrow.Input(
                     "terminations",
                     template=terminations,
@@ -434,6 +441,7 @@ class SEGSSamplerLoopEnd(io.ComfyNode):
         feather=5,
         tiled_decode="disabled",
         operation="sequential",
+        unsample=None,
         **kwargs,
     ):
         execution_list = cls.hidden.execution_list
@@ -442,7 +450,9 @@ class SEGSSamplerLoopEnd(io.ComfyNode):
         if result is not None:
             return io.NodeOutput(result[0][0], result[1][0])
         return io.NodeOutput(
-            *_process_iteration(loop, noise, guider, sampler, sigmas, latent, vae, feather, tiled_decode, operation)
+            *_process_iteration(
+                loop, noise, guider, sampler, sigmas, latent, vae, feather, tiled_decode, operation, unsample
+            )
         )
 
     @classmethod

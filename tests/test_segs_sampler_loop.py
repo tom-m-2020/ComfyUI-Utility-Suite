@@ -314,7 +314,6 @@ class SEGSSamplerLoopTests(unittest.TestCase):
                     force_inpaint="enabled",
                     feather=0,
                     noise_mask="disabled",
-                    cycle=1,
                     noise_mask_feather=0,
                     tiled_encode="disabled",
                     tiled_decode="disabled",

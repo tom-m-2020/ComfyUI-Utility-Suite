@@ -77,7 +77,6 @@ def arguments(image, entries, **overrides):
         "force_inpaint": "enabled",
         "feather": 0,
         "noise_mask": "disabled",
-        "cycle": 1,
         "noise_mask_feather": 0,
         "tiled_encode": "disabled",
         "tiled_decode": "disabled",
@@ -149,7 +148,11 @@ class ProcessingTests(unittest.TestCase):
         self.assertEqual(schema.display_name, "SEGS Sampler Custom")
         defaults = {item.id: getattr(item, "default", None) for item in schema.inputs}
         self.assertEqual(
-            {key: defaults[key] for key in defaults if key not in {"image", "segs", "noise", "guider", "sampler", "sigmas", "vae"}},
+            {
+                key: defaults[key]
+                for key in defaults
+                if key not in {"image", "segs", "noise", "guider", "sampler", "sigmas", "vae", "unsample"}
+            },
             {
                 "guide_size": 512,
                 "guide_size_for": "bbox",
@@ -158,7 +161,6 @@ class ProcessingTests(unittest.TestCase):
                 "force_inpaint": "enabled",
                 "feather": 5,
                 "noise_mask": "enabled",
-                "cycle": 1,
                 "noise_mask_feather": 20,
                 "tiled_encode": "disabled",
                 "tiled_decode": "disabled",
@@ -251,13 +253,13 @@ class ProcessingTests(unittest.TestCase):
         self.assertTrue(torch.equal(seen[0]["noise_mask"], mask.unsqueeze(0)))
         self.assertGreater(int(torch.count_nonzero(output)), 3)
 
-    def test_cycles_feed_previous_latent_and_reuse_supplied_components(self):
+    def test_sampling_executes_once_per_segment(self):
         image = torch.zeros((1, 2, 2, 3))
         seen = []
         with patch.object(MODULE, "_sample_once", add_sampler(seen=seen)):
-            output, _ = MODULE.segs_sampler_custom(**arguments(image, [segment((0, 0, 2, 2))], cycle=3))
-        self.assertEqual([float(item["samples"].mean()) for item in seen], [0.0, 1.0, 2.0])
-        self.assertTrue(torch.all(output == 3))
+            output, _ = MODULE.segs_sampler_custom(**arguments(image, [segment((0, 0, 2, 2))]))
+        self.assertEqual([float(item["samples"].mean()) for item in seen], [0.0])
+        self.assertTrue(torch.all(output == 1))
 
     def test_normal_and_tiled_vae_paths(self):
         image = torch.zeros((1, 2, 2, 3))

@@ -7,6 +7,12 @@ import torch
 import torch.nn.functional as F
 from comfy_api.latest import io
 
+from .segs_sampler_unsample import (
+    SEGS_UNSAMPLE,
+    SEGSUnsampleOptions,
+    sample_with_optional_unsample,
+)
+
 SEGS = io.Custom("SEGS")
 
 
@@ -218,10 +224,10 @@ def _enhance(
     max_size: int,
     force_inpaint: str,
     noise_mask: str,
-    cycle: int,
     noise_mask_feather: int,
     tiled_encode: str,
     tiled_decode: str,
+    unsample: SEGSUnsampleOptions | None,
 ) -> torch.Tensor | None:
     crop_height, crop_width = crop.shape[1:3]
     if guide_size_for == "crop_region":
@@ -254,8 +260,7 @@ def _enhance(
         latent["noise_mask"] = _blur_mask(mask, noise_mask_feather)
     elif noise_mask != "disabled":
         raise ValueError(f"Unsupported noise_mask {noise_mask!r}.")
-    for _ in range(cycle):
-        latent = _sample_once(noise, guider, sampler, sigmas, latent)
+    latent = sample_with_optional_unsample(noise, guider, sampler, sigmas, latent, unsample, _sample_once)
     decoded = _decode(vae, latent, tiled_decode == "enabled")
     return _image_resize(decoded, crop_width, crop_height).cpu()
 
@@ -275,17 +280,16 @@ def segs_sampler_custom(
     force_inpaint: str,
     feather: int,
     noise_mask: str,
-    cycle: int,
     noise_mask_feather: int,
     tiled_encode: str,
     tiled_decode: str,
     operation: str,
+    unsample: SEGSUnsampleOptions | None = None,
 ) -> tuple[torch.Tensor, Any]:
     for name, value, minimum, maximum in (
         ("guide_size", guide_size, 1, None),
         ("max_size", max_size, 1, None),
         ("feather", feather, 0, 100),
-        ("cycle", cycle, 1, 10),
         ("noise_mask_feather", noise_mask_feather, 0, 100),
     ):
         if isinstance(value, bool) or not isinstance(value, int) or value < minimum or (
@@ -337,10 +341,10 @@ def segs_sampler_custom(
             max_size,
             force_inpaint,
             noise_mask,
-            cycle,
             noise_mask_feather,
             tiled_encode,
             tiled_decode,
+            unsample,
         )
         result_crop = crop if enhanced is None else enhanced
         output_entries.append(_replace_crop(segment, result_crop))
@@ -401,11 +405,11 @@ class SEGSSamplerCustom(io.ComfyNode):
                 io.Combo.Input("force_inpaint", options=["disabled", "enabled"], default="enabled"),
                 io.Int.Input("feather", default=5, min=0, max=100, step=1),
                 io.Combo.Input("noise_mask", options=["disabled", "enabled"], default="enabled"),
-                io.Int.Input("cycle", default=1, min=1, max=10, step=1),
                 io.Int.Input("noise_mask_feather", default=20, min=0, max=100, step=1),
                 io.Combo.Input("tiled_encode", options=["disabled", "enabled"], default="disabled"),
                 io.Combo.Input("tiled_decode", options=["disabled", "enabled"], default="disabled"),
                 io.Combo.Input("operation", options=["sequential", "individual"], default="sequential"),
+                SEGS_UNSAMPLE.Input("unsample", optional=True),
             ],
             outputs=[io.Image.Output("image"), SEGS.Output("segs")],
         )

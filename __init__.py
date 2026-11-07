@@ -45,11 +45,13 @@ from .restore_tile_segs_gaps import RestoreTileSEGSGaps
 from .seg_from_segs import SEGFromSEGS
 from .segs_bbox import SEGSToBBOX
 from .segs_change_ratio import SEGSChangeRatio
+from .segs_filter_empty_mask import SEGSFilterEmptyMask
 from .segs_insert_by_index import SEGSInsertByIndex
 from .segs_overlap_to_mask import SEGSOverlapToMASK
 from .segs_range_filter_plus import SEGSRangeFilterPlus
 from .segs_sampler_custom import SEGSSamplerCustom
 from .segs_sampler_loop import LOOP_NODE_CLASSES
+from .segs_sampler_unsample import SEGSSamplerUnsample
 from .tiling import ImageTileBatch, ImageUntileBatch
 
 
@@ -88,6 +90,7 @@ class UtilitySuiteExtension(ComfyExtension):
             MultiInpaintingMaskProcessorSimple,
             SEGSToBBOX,
             SEGSChangeRatio,
+            SEGSFilterEmptyMask,
             FilterTileSEGS,
             SEGSInsertByIndex,
             GuideSizeSEGELT,
@@ -100,6 +103,7 @@ class UtilitySuiteExtension(ComfyExtension):
             SEGSOverlapToMASK,
             SEGSRangeFilterPlus,
             SEGSSamplerCustom,
+            SEGSSamplerUnsample,
             *LOOP_NODE_CLASSES,
             PipeSetAny,
             PipeAnySingle,
