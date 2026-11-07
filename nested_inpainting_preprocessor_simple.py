@@ -16,15 +16,15 @@ COVERAGE_TOLERANCE = 1e-6
 def _validate_mask_batch(mask: torch.Tensor) -> torch.Tensor:
     if not isinstance(mask, torch.Tensor):
         raise TypeError(
-            f"Nested Inpainting Preprocessor Simple expects a torch.Tensor MASK, got {type(mask).__name__}."
+            f"Multi-Inpainting Mask Processor Simple expects a torch.Tensor MASK, got {type(mask).__name__}."
         )
     if mask.ndim != 3:
         raise ValueError(
-            f"Nested Inpainting Preprocessor Simple expects MASK [B,H,W], got shape {tuple(mask.shape)}."
+            f"Multi-Inpainting Mask Processor Simple expects MASK [B,H,W], got shape {tuple(mask.shape)}."
         )
     if any(dimension == 0 for dimension in mask.shape):
         raise ValueError(
-            f"Nested Inpainting Preprocessor Simple requires nonempty dimensions, got shape {tuple(mask.shape)}."
+            f"Multi-Inpainting Mask Processor Simple requires nonempty dimensions, got shape {tuple(mask.shape)}."
         )
     return mask.detach().to(device="cpu", dtype=torch.float32)
 
@@ -112,7 +112,7 @@ def _shrink_masks(
 ) -> torch.Tensor:
     if amount < 0:
         raise ValueError(
-            f"Nested Inpainting Preprocessor Simple shrink must be nonnegative, got {amount}."
+            f"Multi-Inpainting Mask Processor Simple shrink must be nonnegative, got {amount}."
         )
     if amount == 0:
         return masks
@@ -196,12 +196,12 @@ def nested_inpainting_preprocess_simple(
     )
 
 
-class NestedInpaintingPreprocessorSimple(io.ComfyNode):
+class MultiInpaintingMaskProcessorSimple(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="UtilitySuiteNestedInpaintingPreprocessorSimple",
-            display_name="Nested Inpainting Preprocessor Simple",
+            node_id="UtilitySuiteMultiInpaintingMaskProcessorSimple",
+            display_name="Multi-Inpainting Mask Processor Simple",
             category="Utility Suite/Mask",
             description="Builds a compact fixed-blur mask partition for sequential nested inpainting.",
             inputs=[
@@ -256,6 +256,6 @@ class NestedInpaintingPreprocessorSimple(io.ComfyNode):
 
 __all__ = [
     "COVERAGE_TOLERANCE",
-    "NestedInpaintingPreprocessorSimple",
+    "MultiInpaintingMaskProcessorSimple",
     "nested_inpainting_preprocess_simple",
 ]

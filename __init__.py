@@ -35,8 +35,8 @@ from .mask_fill_combined import MaskFillCombined
 from .mask_fill_holes import MaskFillHoles
 from .mask_list import MaskFromList
 from .mask_tile_segs import MaskToTileSEGS
-from .nested_inpainting_preprocessor import NestedInpaintingPreprocessor
-from .nested_inpainting_preprocessor_simple import NestedInpaintingPreprocessorSimple
+from .nested_inpainting_preprocessor import MultiInpaintingMaskProcessor
+from .nested_inpainting_preprocessor_simple import MultiInpaintingMaskProcessorSimple
 from .preview_segs_regions import PreviewSEGSRegions
 from .reorder_batch_mask import ReorderBatchMask
 from .reorder_segs import ReorderSEGS
@@ -84,8 +84,8 @@ class UtilitySuiteExtension(ComfyExtension):
             MaskFillHoles,
             MaskDraw,
             MaskToTileSEGS,
-            NestedInpaintingPreprocessor,
-            NestedInpaintingPreprocessorSimple,
+            MultiInpaintingMaskProcessor,
+            MultiInpaintingMaskProcessorSimple,
             SEGSToBBOX,
             SEGSChangeRatio,
             FilterTileSEGS,

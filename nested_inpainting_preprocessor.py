@@ -14,11 +14,11 @@ from .reorder_batch_mask import reorder_batch_mask
 
 def _validate_mask_batch(mask: torch.Tensor) -> torch.Tensor:
     if not isinstance(mask, torch.Tensor):
-        raise TypeError(f"Nested Inpainting Preprocessor expects a torch.Tensor MASK, got {type(mask).__name__}.")
+        raise TypeError(f"Multi-Inpainting Mask Processor expects a torch.Tensor MASK, got {type(mask).__name__}.")
     if mask.ndim != 3:
-        raise ValueError(f"Nested Inpainting Preprocessor expects MASK [B,H,W], got shape {tuple(mask.shape)}.")
+        raise ValueError(f"Multi-Inpainting Mask Processor expects MASK [B,H,W], got shape {tuple(mask.shape)}.")
     if any(dimension == 0 for dimension in mask.shape):
-        raise ValueError(f"Nested Inpainting Preprocessor requires nonempty dimensions, got shape {tuple(mask.shape)}.")
+        raise ValueError(f"Multi-Inpainting Mask Processor requires nonempty dimensions, got shape {tuple(mask.shape)}.")
     return mask.detach().to(device="cpu", dtype=torch.float32)
 
 
@@ -65,7 +65,7 @@ def _blur_for_area(
 ) -> float:
     bounds = quantized_mask_bounds(mask[0])
     if bounds is None:
-        raise ValueError("Nested Inpainting Preprocessor cannot select a blur radius for an empty mask.")
+        raise ValueError("Multi-Inpainting Mask Processor cannot select a blur radius for an empty mask.")
     width = bounds[2] - bounds[0]
     height = bounds[3] - bounds[1]
     area = width * height
@@ -369,12 +369,12 @@ def nested_inpainting_preprocess(
     )
 
 
-class NestedInpaintingPreprocessor(io.ComfyNode):
+class MultiInpaintingMaskProcessor(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="UtilitySuiteNestedInpaintingPreprocessor",
-            display_name="Nested Inpainting Preprocessor",
+            node_id="UtilitySuiteMultiInpaintingMaskProcessor",
+            display_name="Multi-Inpainting Mask Processor",
             category="Utility Suite/Mask",
             description="Builds ordered target and counter masks for sequential nested inpainting.",
             inputs=[
@@ -451,4 +451,4 @@ class NestedInpaintingPreprocessor(io.ComfyNode):
         )
 
 
-__all__ = ["NestedInpaintingPreprocessor", "nested_inpainting_preprocess"]
+__all__ = ["MultiInpaintingMaskProcessor", "nested_inpainting_preprocess"]

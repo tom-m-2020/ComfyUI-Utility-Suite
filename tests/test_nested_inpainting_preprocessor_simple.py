@@ -106,13 +106,13 @@ def reference_run(mask: torch.Tensor, **overrides):
     return result, result[1:], union_init, bg_init, result[0:1], source
 
 
-class NestedInpaintingPreprocessorSimpleTests(unittest.TestCase):
+class MultiInpaintingMaskProcessorSimpleTests(unittest.TestCase):
     def test_schema_and_registration(self):
-        schema = MODULE.NestedInpaintingPreprocessorSimple.define_schema()
+        schema = MODULE.MultiInpaintingMaskProcessorSimple.define_schema()
         self.assertEqual(
-            schema.node_id, "UtilitySuiteNestedInpaintingPreprocessorSimple"
+            schema.node_id, "UtilitySuiteMultiInpaintingMaskProcessorSimple"
         )
-        self.assertEqual(schema.display_name, "Nested Inpainting Preprocessor Simple")
+        self.assertEqual(schema.display_name, "Multi-Inpainting Mask Processor Simple")
         self.assertEqual(schema.category, "Utility Suite/Mask")
         self.assertEqual(
             [item.id for item in schema.inputs],
@@ -141,7 +141,7 @@ class NestedInpaintingPreprocessorSimpleTests(unittest.TestCase):
             ],
         )
         nodes = asyncio.run(PACKAGE.UtilitySuiteExtension().get_node_list())
-        self.assertIn(MODULE.NestedInpaintingPreprocessorSimple, nodes)
+        self.assertIn(MODULE.MultiInpaintingMaskProcessorSimple, nodes)
 
     def test_outputs_have_expected_shapes_and_views(self):
         masks = torch.zeros(3, 24, 32)

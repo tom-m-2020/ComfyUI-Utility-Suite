@@ -173,11 +173,11 @@ def reference_run(mask: torch.Tensor, **overrides):
     )
 
 
-class NestedInpaintingPreprocessorTests(unittest.TestCase):
+class MultiInpaintingMaskProcessorTests(unittest.TestCase):
     def test_schema_and_registration(self):
-        schema = MODULE.NestedInpaintingPreprocessor.define_schema()
-        self.assertEqual(schema.node_id, "UtilitySuiteNestedInpaintingPreprocessor")
-        self.assertEqual(schema.display_name, "Nested Inpainting Preprocessor")
+        schema = MODULE.MultiInpaintingMaskProcessor.define_schema()
+        self.assertEqual(schema.node_id, "UtilitySuiteMultiInpaintingMaskProcessor")
+        self.assertEqual(schema.display_name, "Multi-Inpainting Mask Processor")
         self.assertEqual(schema.category, "Utility Suite/Mask")
         self.assertEqual(
             [item.id for item in schema.inputs],
@@ -217,7 +217,7 @@ class NestedInpaintingPreprocessorTests(unittest.TestCase):
         )
         self.assertTrue(schema.outputs[9].is_output_list)
         nodes = asyncio.run(PACKAGE.UtilitySuiteExtension().get_node_list())
-        self.assertIn(MODULE.NestedInpaintingPreprocessor, nodes)
+        self.assertIn(MODULE.MultiInpaintingMaskProcessor, nodes)
 
     def test_single_mask_has_explicit_empty_zeroth_diagnostics(self):
         mask = torch.zeros(1, 24, 32)
