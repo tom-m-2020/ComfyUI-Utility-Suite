@@ -213,7 +213,8 @@ class SEGSSamplerLoopTests(unittest.TestCase):
         defaults = {item.id: getattr(item, "default", None) for item in start.inputs}
         self.assertEqual((defaults["start_index"], defaults["max_iteration"]), (0, -1))
         self.assertIn("terminations", [item.id for item in end.inputs])
-        self.assertNotEqual(MODULE.SEGSSamplerLoopEnd.fingerprint_inputs(), MODULE.SEGSSamplerLoopEnd.fingerprint_inputs())
+        self.assertIn("fingerprint_inputs", MODULE.SEGSSamplerLoopStart.__dict__)
+        self.assertNotIn("fingerprint_inputs", MODULE.SEGSSamplerLoopEnd.__dict__)
         nodes = asyncio.run(PACKAGE.UtilitySuiteExtension().get_node_list())
         self.assertIn(MODULE.SEGSSamplerLoopStart, nodes)
         self.assertIn(MODULE.SEGSSamplerLoopEnd, nodes)
@@ -442,7 +443,7 @@ class SEGSSamplerLoopTests(unittest.TestCase):
         with self.assertRaises(LoopValidationError):
             validate_loops(prompt, {"end", "escape"}, prompt, {"start"}, {"end"})
 
-    def test_native_execution_invalidates_when_body_setting_changes(self):
+    def test_native_execution_reuses_unchanged_sampling_and_invalidates_changed_body(self):
         registered = {cls.define_schema().node_id: cls for cls in MODULE.LOOP_NODE_CLASSES}
         registered.update({
             "LoopGraphSource": GraphSource,
@@ -478,9 +479,9 @@ class SEGSSamplerLoopTests(unittest.TestCase):
 
         with patch.dict(nodes.NODE_CLASS_MAPPINGS, registered), patch.object(
             server.PromptServer, "instance", ProgressServer(), create=True
-        ), patch.object(MODULE, "_sample_once", sample_add_one):
+        ), patch.object(MODULE, "_sample_once", wraps=sample_add_one) as sample:
             executor = PromptExecutor(ExecutionServer(), cache_type=False, cache_args={"ram": 0, "ram_inactive": 0})
-            for amount in (0.0, 2.0):
+            for amount in (0.0, 0.0, 2.0):
                 current_prompt = copy.deepcopy(prompt)
                 current_prompt["latent"]["inputs"]["amount"] = amount
                 validate_loops(current_prompt, {"capture"}, current_prompt, {"start"}, {"end"})
@@ -488,8 +489,9 @@ class SEGSSamplerLoopTests(unittest.TestCase):
                 self.assertTrue(executor.success)
 
         self.assertEqual(len(GraphLatent.seen), 2)
+        self.assertEqual(sample.call_count, 2)
         self.assertTrue(torch.all(GraphCapture.values[0][0] == 1))
-        self.assertTrue(torch.all(GraphCapture.values[1][0] == 3))
+        self.assertTrue(torch.all(GraphCapture.values[-1][0] == 3))
 
 
 if __name__ == "__main__":

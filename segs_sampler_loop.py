@@ -455,11 +455,6 @@ class SEGSSamplerLoopEnd(io.ComfyNode):
             )
         )
 
-    @classmethod
-    def fingerprint_inputs(cls, **kwargs):
-        return float("NaN")
-
-
 class SEGSSamplerLoopInitialize(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
