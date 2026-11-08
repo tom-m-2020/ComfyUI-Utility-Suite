@@ -8,6 +8,28 @@ SEGS = io.Custom("SEGS")
 SEGS_INDICES = io.Custom("SEGS_INDICES")
 
 
+def parse_index_csv(index_text: str) -> list[int]:
+    if not isinstance(index_text, str):
+        raise TypeError("SEGS Insert by Index manual index must be a string.")
+    parts = index_text.split(",")
+    if any(not part.strip() for part in parts):
+        raise ValueError("SEGS Insert by Index manual index contains an empty element.")
+    try:
+        return [int(part.strip()) for part in parts]
+    except ValueError as error:
+        raise ValueError("SEGS Insert by Index manual index must contain only comma-separated integers.") from error
+
+
+def resolve_indices(index_text: str, index_input: Any) -> Any:
+    if not isinstance(index_text, str):
+        raise TypeError("SEGS Insert by Index manual index must be a string.")
+    if index_text.strip():
+        return parse_index_csv(index_text)
+    if index_input is None:
+        raise ValueError("SEGS Insert by Index requires a SEGS_INDICES input or manually entered indices.")
+    return index_input
+
+
 def _segs_parts(segs: Any, input_name: str) -> tuple[Any, list[Any] | tuple[Any, ...]]:
     if not isinstance(segs, (list, tuple)) or len(segs) != 2:
         raise TypeError(f"{input_name} must be a (source-size header, entries) SEGS pair.")
@@ -69,11 +91,25 @@ class SEGSInsertByIndex(io.ComfyNode):
             inputs=[
                 SEGS.Input("segs_destination"),
                 SEGS.Input("segs_source"),
-                SEGS_INDICES.Input("index"),
+                SEGS_INDICES.Input("index", display_name="index", optional=True),
+                io.String.Input(
+                    "index_text",
+                    display_name="index",
+                    default="",
+                    multiline=False,
+                    tooltip="Optional comma-separated final positions. A nonempty value overrides the index socket.",
+                ),
             ],
             outputs=[SEGS.Output("SEGS")],
         )
 
     @classmethod
-    def execute(cls, segs_destination: Any, segs_source: Any, index: Any) -> io.NodeOutput:
-        return io.NodeOutput(insert_segs_by_index(segs_destination, segs_source, index))
+    def execute(
+        cls,
+        segs_destination: Any,
+        segs_source: Any,
+        index: Any = None,
+        index_text: str = "",
+    ) -> io.NodeOutput:
+        indices = resolve_indices(index_text, index)
+        return io.NodeOutput(insert_segs_by_index(segs_destination, segs_source, indices))

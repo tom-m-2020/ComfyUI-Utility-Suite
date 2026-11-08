@@ -130,11 +130,69 @@ class SEGSInsertByIndexTests(unittest.TestCase):
         self.assertIs(result[1][2], original[2])
         self.assertIs(result[1][3], modified[1])
 
+    def test_manual_indices_without_connected_input(self):
+        indices = MODULE.resolve_indices(" 3, 1 ", None)
+        result = self.insert([self.a, self.c, self.e], [self.d, self.b], indices)
+        self.assertEqual(indices, [3, 1])
+        self.assertEqual(result[1], [self.a, self.b, self.c, self.d, self.e])
+
+    def test_empty_or_whitespace_manual_value_uses_connected_input(self):
+        connected = [1, 3]
+        self.assertIs(MODULE.resolve_indices("", connected), connected)
+        self.assertIs(MODULE.resolve_indices("   ", connected), connected)
+
+    def test_nonempty_manual_value_overrides_connected_input(self):
+        self.assertEqual(MODULE.resolve_indices("1, 3", [0, 2]), [1, 3])
+
+    def test_invalid_manual_value_never_falls_back_to_connected_input(self):
+        invalid = {
+            "1,x,5": "integers",
+            "1,,5": "empty element",
+            ",1,5": "empty element",
+            "1,5,": "empty element",
+        }
+        for text, message in invalid.items():
+            with self.subTest(text=text), self.assertRaisesRegex(ValueError, message):
+                MODULE.resolve_indices(text, [0, 2, 4])
+
+    def test_manual_indices_use_existing_range_count_and_duplicate_validation(self):
+        cases = [
+            ("-1", [self.a, self.c], [self.b], ValueError, "outside"),
+            ("1,1", [self.a, self.c], [self.b, self.d], ValueError, "duplicate"),
+            ("3", [self.a, self.c], [self.b], ValueError, "outside"),
+            ("1", [self.a, self.c], [self.b, self.d], ValueError, "2 source entries but 1 indices"),
+        ]
+        for text, destination, source, error_type, message in cases:
+            with self.subTest(text=text), self.assertRaisesRegex(error_type, message):
+                indices = MODULE.resolve_indices(text, [0, 2])
+                self.insert(destination, source, indices)
+
+    def test_missing_index_sources_fails_clearly(self):
+        with self.assertRaisesRegex(ValueError, "SEGS_INDICES input or manually entered indices"):
+            MODULE.resolve_indices("   ", None)
+
+    def test_execute_supports_manual_override_and_legacy_socket(self):
+        destination = (self.header, [self.a, self.c, self.e])
+        source = (self.header, [self.b, self.d])
+        legacy = MODULE.SEGSInsertByIndex.execute(destination, source, index=[1, 3], index_text="").result[0]
+        manual = MODULE.SEGSInsertByIndex.execute(destination, source, index=None, index_text="1,3").result[0]
+        override = MODULE.SEGSInsertByIndex.execute(destination, source, index=[0, 2], index_text="1,3").result[0]
+        expected = [self.a, self.b, self.c, self.d, self.e]
+        self.assertEqual(legacy[1], expected)
+        self.assertEqual(manual[1], expected)
+        self.assertEqual(override[1], expected)
+
     def test_schema_uses_single_value_segs_indices_transport(self):
         schema = MODULE.SEGSInsertByIndex.define_schema()
         self.assertEqual(schema.node_id, "UtilitySuiteSEGSInsertByIndex")
         self.assertEqual(schema.display_name, "SEGS Insert by Index")
-        self.assertEqual([entry.io_type for entry in schema.inputs], ["SEGS", "SEGS", "SEGS_INDICES"])
+        self.assertEqual([entry.io_type for entry in schema.inputs], ["SEGS", "SEGS", "SEGS_INDICES", "STRING"])
+        self.assertEqual([entry.id for entry in schema.inputs], ["segs_destination", "segs_source", "index", "index_text"])
+        self.assertEqual(schema.inputs[2].display_name, "index")
+        self.assertTrue(schema.inputs[2].optional)
+        self.assertEqual(schema.inputs[3].display_name, "index")
+        self.assertEqual(schema.inputs[3].default, "")
+        self.assertFalse(schema.inputs[3].multiline)
         self.assertFalse(schema.is_input_list)
         self.assertEqual([output.io_type for output in schema.outputs], ["SEGS"])
         self.assertFalse(schema.outputs[0].is_output_list)
