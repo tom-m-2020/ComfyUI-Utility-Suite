@@ -7,9 +7,12 @@ from comfy_api.latest import io
 from .segs_geometry import integer
 
 SEGS = io.Custom("SEGS")
+SEGS_INDICES = io.Custom("SEGS_INDICES")
 
 
-def seg_from_segs(segs: Any, index: int, length: int) -> tuple[Any, list[Any]]:
+def _select_segs_range(
+    segs: Any, index: int, length: int
+) -> tuple[Any, list[Any], list[int]]:
     if not isinstance(segs, (list, tuple)) or len(segs) != 2:
         raise TypeError("SEG From SEGS expects SEGS shaped as (header, segment_entries).")
     header, entries = segs
@@ -24,10 +27,23 @@ def seg_from_segs(segs: Any, index: int, length: int) -> tuple[Any, list[Any]]:
 
     count = len(entries)
     if count == 0:
-        return header, []
+        return header, [], []
     index = min(index, count - 1)
     length = min(count - index, length)
-    return header, list(entries[index : index + length])
+    stop = index + length
+    return header, list(entries[index:stop]), list(range(index, stop))
+
+
+def seg_from_segs(segs: Any, index: int, length: int) -> tuple[Any, list[Any]]:
+    header, entries, _ = _select_segs_range(segs, index, length)
+    return header, entries
+
+
+def seg_from_segs_with_indices(
+    segs: Any, index: int, length: int
+) -> tuple[tuple[Any, list[Any]], list[int]]:
+    header, entries, indices = _select_segs_range(segs, index, length)
+    return (header, entries), indices
 
 
 class SEGFromSEGS(io.ComfyNode):
@@ -43,9 +59,13 @@ class SEGFromSEGS(io.ComfyNode):
                 io.Int.Input("index", default=0, min=0, max=32768),
                 io.Int.Input("length", default=1, min=1, max=32768),
             ],
-            outputs=[SEGS.Output("segs", display_name="segs")],
+            outputs=[
+                SEGS.Output("segs", display_name="segs"),
+                SEGS_INDICES.Output("index", display_name="index"),
+            ],
         )
 
     @classmethod
     def execute(cls, segs: Any, index: int, length: int) -> io.NodeOutput:
-        return io.NodeOutput(seg_from_segs(segs, index, length))
+        selected, indices = seg_from_segs_with_indices(segs, index, length)
+        return io.NodeOutput(selected, indices)

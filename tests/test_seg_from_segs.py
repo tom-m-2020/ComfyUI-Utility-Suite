@@ -23,6 +23,7 @@ sys.modules[SPEC.name] = PACKAGE
 SPEC.loader.exec_module(PACKAGE)
 MODULE = sys.modules[f"{SPEC.name}.seg_from_segs"]
 MASK_TILE = sys.modules[f"{SPEC.name}.mask_tile_segs"]
+INSERT = sys.modules[f"{SPEC.name}.segs_insert_by_index"]
 IMPACT_ROOT = COMFY_ROOT / "custom_nodes" / "ComfyUI-Impact-Pack" / "modules" / "impact"
 
 
@@ -69,6 +70,12 @@ class SEGFromSEGSTests(unittest.TestCase):
         first = MODULE.seg_from_segs(self.segs, 0, 1)
         self.assertIs(first[1][0], self.entries[0])
 
+    def test_index_output_matches_selected_original_positions(self):
+        selected, indices = MODULE.seg_from_segs_with_indices(self.segs, 1, 2)
+        self.assertEqual(indices, [1, 2])
+        self.assertIs(selected[1][0], self.entries[1])
+        self.assertIs(selected[1][1], self.entries[2])
+
     def test_final_item_and_overlong_length(self):
         final = MODULE.seg_from_segs(self.segs, 4, 1)
         self.assertEqual(len(final[1]), 1)
@@ -82,6 +89,8 @@ class SEGFromSEGSTests(unittest.TestCase):
         result = MODULE.seg_from_segs(self.segs, 999, 3)
         self.assertEqual(len(result[1]), 1)
         self.assertIs(result[1][0], self.entries[-1])
+        _, indices = MODULE.seg_from_segs_with_indices(self.segs, 999, 3)
+        self.assertEqual(indices, [4])
 
     def test_impact_decompose_select_assemble_equivalence(self):
         decompose = impact_class("segs_nodes.py", "DecomposeSEGS")()
@@ -168,6 +177,10 @@ class SEGFromSEGSTests(unittest.TestCase):
         result = MODULE.seg_from_segs((header, []), 100, 5)
         self.assertIs(result[0], header)
         self.assertEqual(result[1], [])
+        indexed, indices = MODULE.seg_from_segs_with_indices((header, []), 100, 5)
+        self.assertIs(indexed[0], header)
+        self.assertEqual(indexed[1], [])
+        self.assertEqual(indices, [])
 
     def test_unselected_malformed_geometry_is_not_inspected(self):
         malformed = SEG(None, np.zeros((1, 1)), 0.2, None, None, "unselected", None)
@@ -194,14 +207,30 @@ class SEGFromSEGSTests(unittest.TestCase):
         self.assertIs(result[1][1], original[1][2])
         self.assertIs(result[1][0].cropped_mask, original[1][1].cropped_mask)
 
-    def test_schema_is_one_ordinary_segs_output(self):
+    def test_schema_has_ordinary_segs_and_single_value_indices_outputs(self):
         schema = MODULE.SEGFromSEGS.define_schema()
         self.assertEqual(schema.node_id, "UtilitySuiteSEGFromSEGS")
         self.assertEqual(schema.display_name, "SEG From SEGS")
         self.assertEqual(schema.category, "Utility Suite/SEGS")
         self.assertEqual([entry.io_type for entry in schema.inputs], ["SEGS", "INT", "INT"])
-        self.assertEqual([output.io_type for output in schema.outputs], ["SEGS"])
+        self.assertEqual([output.io_type for output in schema.outputs], ["SEGS", "SEGS_INDICES"])
         self.assertFalse(schema.outputs[0].is_output_list)
+        self.assertFalse(schema.outputs[1].is_output_list)
+
+    def test_execute_returns_selected_segs_and_one_index_collection(self):
+        output = MODULE.SEGFromSEGS.execute(self.segs, 3, 99)
+        self.assertEqual(len(output.result), 2)
+        self.assertIs(output[0][1][0], self.entries[3])
+        self.assertIs(output[0][1][1], self.entries[4])
+        self.assertEqual(output[1], [3, 4])
+
+    def test_index_output_is_accepted_by_segs_insert_by_index(self):
+        selected, indices = MODULE.seg_from_segs_with_indices(self.segs, 1, 2)
+        destination = (self.header, [self.entries[0], self.entries[3], self.entries[4]])
+        reconstructed = INSERT.insert_segs_by_index(destination, selected, indices)
+        self.assertTrue(
+            all(actual is expected for actual, expected in zip(reconstructed[1], self.entries, strict=True))
+        )
 
 
 if __name__ == "__main__":
