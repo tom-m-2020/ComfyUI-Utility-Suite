@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-utility-suite"
-description = ""
-version = "1.7.0"
+description = "Inpainting/outpainting, tiling and ref editing logics."
+version = "1.8.0"
 license = {file = "LICENSE"}
 
 # classifiers = [
