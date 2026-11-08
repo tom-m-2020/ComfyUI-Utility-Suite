@@ -4,20 +4,14 @@ from typing import Any
 
 from comfy_api.latest import io
 
+from .segs_indices import parse_index_csv as _parse_index_csv
+
 SEGS = io.Custom("SEGS")
 SEGS_INDICES = io.Custom("SEGS_INDICES")
 
 
 def parse_index_csv(index_text: str) -> list[int]:
-    if not isinstance(index_text, str):
-        raise TypeError("SEGS Insert by Index manual index must be a string.")
-    parts = index_text.split(",")
-    if any(not part.strip() for part in parts):
-        raise ValueError("SEGS Insert by Index manual index contains an empty element.")
-    try:
-        return [int(part.strip()) for part in parts]
-    except ValueError as error:
-        raise ValueError("SEGS Insert by Index manual index must contain only comma-separated integers.") from error
+    return _parse_index_csv(index_text, "SEGS Insert by Index")
 
 
 def resolve_indices(index_text: str, index_input: Any) -> Any:

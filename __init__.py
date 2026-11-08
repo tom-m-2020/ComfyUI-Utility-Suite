@@ -43,6 +43,7 @@ from .reorder_segs import ReorderSEGS
 from .reroute_optional import RerouteOptional
 from .restore_tile_segs_gaps import RestoreTileSEGSGaps
 from .seg_from_segs import SEGFromSEGS
+from .segs_assign_label import SEGSAssignLabel
 from .segs_bbox import SEGSToBBOX
 from .segs_change_ratio import SEGSChangeRatio
 from .segs_filter_empty_mask import SEGSFilterEmptyMask
@@ -100,6 +101,7 @@ class UtilitySuiteExtension(ComfyExtension):
             ReorderBatchMask,
             ReorderSEGS,
             SEGFromSEGS,
+            SEGSAssignLabel,
             SEGSOverlapToMASK,
             SEGSRangeFilterPlus,
             SEGSSamplerCustom,

@@ -112,6 +112,7 @@ class ImageBatchListTests(unittest.TestCase):
                 "UtilitySuiteReorderSEGS",
                 "UtilitySuiteReorderBatchMask",
             "UtilitySuiteSEGFromSEGS",
+            "UtilitySuiteSEGSAssignLabel",
             "UtilitySuiteSEGSOverlapToMASK",
             "UtilitySuiteSEGSRangeFilterPlus",
             "UtilitySuiteSEGSToBBOX",
