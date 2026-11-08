@@ -138,6 +138,88 @@ class SEGSChangeRatioTests(unittest.TestCase):
             self.assertLessEqual(width * height, 512 * 512)
             self.assertEqual(width, height)
 
+    def test_tile_limit_caps_expansion_to_original_short_side(self):
+        source = segment((0, 198, 1477, 712))
+
+        result = run(
+            ((1108, 1478), [source]),
+            tiling=True,
+            min_overlap=96,
+            max_tile_size=514,
+        )
+
+        self.assertEqual(len(result[1]), 4)
+        self.assertEqual(
+            [
+                min(entry.crop_region[0] for entry in result[1]),
+                min(entry.crop_region[1] for entry in result[1]),
+                max(entry.crop_region[2] for entry in result[1]),
+                max(entry.crop_region[3] for entry in result[1]),
+            ],
+            [0, 198, 1477, 712],
+        )
+        self.assertTrue(
+            all(
+                entry.crop_region[2] - entry.crop_region[0] == 514
+                and entry.crop_region[3] - entry.crop_region[1] == 514
+                for entry in result[1]
+            )
+        )
+
+    def test_larger_tile_limit_caps_expansion_at_that_limit(self):
+        source = segment((0, 198, 1477, 712))
+
+        result = run(
+            ((1108, 1478), [source]),
+            tiling=True,
+            min_overlap=96,
+            max_tile_size=1024,
+        )
+
+        self.assertEqual(len(result[1]), 2)
+        self.assertEqual(
+            [
+                min(entry.crop_region[0] for entry in result[1]),
+                min(entry.crop_region[1] for entry in result[1]),
+                max(entry.crop_region[2] for entry in result[1]),
+                max(entry.crop_region[3] for entry in result[1]),
+            ],
+            [0, 0, 1477, 1024],
+        )
+        self.assertTrue(
+            all(
+                entry.crop_region[2] - entry.crop_region[0] == 1024
+                and entry.crop_region[3] - entry.crop_region[1] == 1024
+                for entry in result[1]
+            )
+        )
+
+    def test_existing_large_crop_never_shrinks_for_either_tile_limit(self):
+        source = segment((0, 0, 1477, 1108))
+        segs = ((1108, 1478), [source])
+
+        small = run(segs, tiling=True, min_overlap=96, max_tile_size=514)
+        large = run(segs, tiling=True, min_overlap=96, max_tile_size=2048)
+
+        for result in (small, large):
+            self.assertEqual(
+                [
+                    min(entry.crop_region[0] for entry in result[1]),
+                    min(entry.crop_region[1] for entry in result[1]),
+                    max(entry.crop_region[2] for entry in result[1]),
+                    max(entry.crop_region[3] for entry in result[1]),
+                ],
+                [0, 0, 1477, 1108],
+            )
+        self.assertEqual(len(large[1]), 2)
+        self.assertTrue(
+            all(
+                entry.crop_region[2] - entry.crop_region[0] == 1108
+                and entry.crop_region[3] - entry.crop_region[1] == 1108
+                for entry in large[1]
+            )
+        )
+
     def test_original_mask_stays_in_global_position_across_tiles(self):
         mask = np.zeros((512, 512), dtype=np.float32)
         mask[200:312, 240:272] = 0.625

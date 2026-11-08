@@ -30,6 +30,7 @@ def _expanded_crop(
     canvas_width: int,
     canvas_height: int,
     ratio: float,
+    expansion_limit: int | None = None,
 ) -> tuple[list[int], bool]:
     x1, y1, x2, y2 = crop
     width = x2 - x1
@@ -41,10 +42,21 @@ def _expanded_crop(
     elif width / height > ratio:
         desired_height = max(height, math.ceil(width / ratio))
 
-    clipped = desired_width > canvas_width or desired_height > canvas_height
+    ideal_width = desired_width
+    ideal_height = desired_height
+    if expansion_limit is not None:
+        desired_width = min(desired_width, max(width, expansion_limit))
+        desired_height = min(desired_height, max(height, expansion_limit))
+
+    constrained = (
+        ideal_width > canvas_width
+        or ideal_height > canvas_height
+        or desired_width < ideal_width
+        or desired_height < ideal_height
+    )
     new_x1, new_x2 = _expanded_axis(canvas_width, x1, x2, desired_width)
     new_y1, new_y2 = _expanded_axis(canvas_height, y1, y2, desired_height)
-    return [new_x1, new_y1, new_x2, new_y2], clipped
+    return [new_x1, new_y1, new_x2, new_y2], constrained
 
 
 def _cropped_mask(segment: Any, crop: tuple[int, int, int, int]) -> np.ndarray:
@@ -184,16 +196,17 @@ def segs_change_ratio(
     output = []
     for segment, crop in zip(entries, crops):
         source_mask = _cropped_mask(segment, crop)
-        expanded, clipped = _expanded_crop(
+        expanded, constrained = _expanded_crop(
             crop,
             canvas_width,
             canvas_height,
             ratio,
+            max_tile_size if tiling else None,
         )
         region_width = expanded[2] - expanded[0]
         region_height = expanded[3] - expanded[1]
         exceeds_maximum = region_width * region_height > max_tile_size * max_tile_size
-        if not tiling or (not clipped and not exceeds_maximum):
+        if not tiling or (not constrained and not exceeds_maximum):
             output.append(_replace_segment(segment, source_mask, crop, tuple(expanded)))
             continue
 
