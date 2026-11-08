@@ -81,6 +81,16 @@ def should_sample(reference_width: int, reference_height: int, guide_size: int, 
     return force_inpaint == "enabled" or math.sqrt(reference_width * reference_height) < guide_size
 
 
+def iteration_bounds(count: int, start_index: int, max_iteration: int) -> tuple[int, int]:
+    if isinstance(start_index, bool) or not isinstance(start_index, int) or start_index < 0:
+        raise ValueError(f"SEGS Sampler Custom start_index must be a nonnegative integer, got {start_index!r}.")
+    if isinstance(max_iteration, bool) or not isinstance(max_iteration, int) or max_iteration < -1:
+        raise ValueError(f"SEGS Sampler Custom max_iteration must be -1 or greater, got {max_iteration!r}.")
+    start = min(start_index, count)
+    stop = count if max_iteration in {-1, 0} else min(count, start + max_iteration)
+    return start, stop
+
+
 def _image_resize(image: torch.Tensor, width: int, height: int) -> torch.Tensor:
     if image.shape[1:3] == (height, width):
         return image
@@ -285,6 +295,8 @@ def segs_sampler_custom(
     tiled_decode: str,
     operation: str,
     unsample: SEGSUnsampleOptions | None = None,
+    start_index: int = 0,
+    max_iteration: int = -1,
 ) -> tuple[torch.Tensor, Any]:
     for name, value, minimum, maximum in (
         ("guide_size", guide_size, 1, None),
@@ -298,12 +310,15 @@ def segs_sampler_custom(
             interval = f"{minimum}..{maximum}" if maximum is not None else f">= {minimum}"
             raise ValueError(f"SEGS Sampler Custom {name} must be an integer in {interval}, got {value!r}.")
     header, entries, regions = _validate(image, segs)
+    start, stop = iteration_bounds(len(entries), start_index, max_iteration)
     if operation not in {"sequential", "individual"}:
         raise ValueError(f"Unsupported operation {operation!r}.")
     canvas = image.clone()
-    output_entries = []
+    output_entries = list(entries)
 
-    for segment, region in zip(entries, regions):
+    for index in range(start, stop):
+        segment = entries[index]
+        region = regions[index]
         original_height = region[3] - region[1]
         original_width = region[2] - region[0]
         original_mask = _mask_tensor(segment.cropped_mask, original_height, original_width)
@@ -347,17 +362,20 @@ def segs_sampler_custom(
             unsample,
         )
         result_crop = crop if enhanced is None else enhanced
-        output_entries.append(_replace_crop(segment, result_crop))
+        output_entries[index] = _replace_crop(segment, result_crop)
         if operation == "sequential" and enhanced is not None:
             _paste(canvas, enhanced, region, _blur_mask(original_mask, feather))
 
     if operation == "individual":
         canvas = image.clone()
-        for segment, region in zip(output_entries, regions):
+        for index in range(start, stop):
+            segment = output_entries[index]
+            region = regions[index]
             crop = torch.as_tensor(segment.cropped_image, dtype=image.dtype)
             _paste(canvas, crop, region, _blur_mask(_mask_tensor(segment.cropped_mask, region[3] - region[1], region[2] - region[0]), feather))
     else:
-        output_entries = [_replace_crop(segment, _crop(canvas, region).clone()) for segment, region in zip(entries, regions)]
+        for index in range(start, stop):
+            output_entries[index] = _replace_crop(entries[index], _crop(canvas, regions[index]).clone())
 
     return canvas, (header, output_entries)
 
@@ -381,6 +399,14 @@ class SEGSSamplerCustom(io.ComfyNode):
                 io.Sampler.Input("sampler"),
                 io.Sigmas.Input("sigmas"),
                 io.Vae.Input("vae"),
+                io.Int.Input("start_index", default=0, min=0, step=1),
+                io.Int.Input(
+                    "max_iteration",
+                    default=-1,
+                    min=-1,
+                    step=1,
+                    tooltip="-1 or 0 processes all remaining SEGs; a positive value limits the number processed.",
+                ),
                 io.Int.Input("guide_size", default=512, min=1, max=32768, step=1, tooltip=guide_tooltip),
                 io.Combo.Input(
                     "guide_size_for",
@@ -419,4 +445,4 @@ class SEGSSamplerCustom(io.ComfyNode):
         return io.NodeOutput(*segs_sampler_custom(**kwargs))
 
 
-__all__ = ["SEGSSamplerCustom", "processing_size", "segs_sampler_custom", "should_sample"]
+__all__ = ["SEGSSamplerCustom", "iteration_bounds", "processing_size", "segs_sampler_custom", "should_sample"]

@@ -70,6 +70,8 @@ def arguments(image, entries, **overrides):
         "sampler": object(),
         "sigmas": torch.tensor([1.0, 0.0]),
         "vae": FakeVAE(),
+        "start_index": 0,
+        "max_iteration": -1,
         "guide_size": 4,
         "guide_size_for": "crop_region",
         "scale_to_guide_size": "none",
@@ -154,6 +156,8 @@ class ProcessingTests(unittest.TestCase):
                 if key not in {"image", "segs", "noise", "guider", "sampler", "sigmas", "vae", "unsample"}
             },
             {
+                "start_index": 0,
+                "max_iteration": -1,
                 "guide_size": 512,
                 "guide_size_for": "bbox",
                 "scale_to_guide_size": "upscale",
@@ -167,7 +171,8 @@ class ProcessingTests(unittest.TestCase):
                 "operation": "sequential",
             },
         )
-        self.assertIn("Square root", schema.inputs[7].tooltip)
+        guide_size = next(item for item in schema.inputs if item.id == "guide_size")
+        self.assertIn("Square root", guide_size.tooltip)
         nodes = asyncio.run(PACKAGE.UtilitySuiteExtension().get_node_list())
         self.assertIn(MODULE.SEGSSamplerCustom, nodes)
 
@@ -260,6 +265,71 @@ class ProcessingTests(unittest.TestCase):
             output, _ = MODULE.segs_sampler_custom(**arguments(image, [segment((0, 0, 2, 2))]))
         self.assertEqual([float(item["samples"].mean()) for item in seen], [0.0])
         self.assertTrue(torch.all(output == 1))
+
+    def test_iteration_bounds_match_loop_range_semantics(self):
+        self.assertEqual(MODULE.iteration_bounds(10, 0, -1), (0, 10))
+        self.assertEqual(MODULE.iteration_bounds(10, 3, -1), (3, 10))
+        self.assertEqual(MODULE.iteration_bounds(10, 3, 0), (3, 10))
+        self.assertEqual(MODULE.iteration_bounds(10, 3, 4), (3, 7))
+        self.assertEqual(MODULE.iteration_bounds(10, 8, 10), (8, 10))
+        self.assertEqual(MODULE.iteration_bounds(10, 10, -1), (10, 10))
+        for start_index, max_iteration in ((-1, -1), (True, -1), (0, -2), (0, True)):
+            with self.subTest(start_index=start_index, max_iteration=max_iteration), self.assertRaises(ValueError):
+                MODULE.iteration_bounds(3, start_index, max_iteration)
+
+    def test_partial_range_samples_only_selected_indices_and_preserves_others(self):
+        image = torch.zeros((1, 2, 6, 3))
+        original_crops = [np.full((1, 2, 2, 3), value, dtype=np.float32) for value in (4, 5, 6)]
+        entries = [
+            segment((0, 0, 2, 2), cropped_image=original_crops[0], label="zero"),
+            segment((2, 0, 4, 2), cropped_image=original_crops[1], label="one"),
+            segment((4, 0, 6, 2), cropped_image=original_crops[2], label="two"),
+        ]
+        seen = []
+        with patch.object(MODULE, "_sample_once", add_sampler(seen=seen)):
+            output, segs = MODULE.segs_sampler_custom(
+                **arguments(image, entries, operation="individual", start_index=1, max_iteration=1)
+            )
+        self.assertEqual(len(seen), 1)
+        self.assertTrue(torch.all(seen[0]["samples"] == 5))
+        self.assertTrue(torch.all(output[:, :, :2] == 0))
+        self.assertTrue(torch.all(output[:, :, 2:4] == 6))
+        self.assertTrue(torch.all(output[:, :, 4:] == 0))
+        self.assertIs(segs[1][0], entries[0])
+        self.assertIs(segs[1][2], entries[2])
+        self.assertTrue(np.array_equal(segs[1][1].cropped_image, np.full((1, 2, 2, 3), 6, dtype=np.float32)))
+
+    def test_sequential_partial_range_uses_selected_order_and_preserves_unprocessed_entries(self):
+        image = torch.zeros((1, 2, 6, 3))
+        untouched = segment((0, 0, 2, 2), cropped_image=np.full((1, 2, 2, 3), 9, dtype=np.float32))
+        entries = [
+            untouched,
+            segment((1, 0, 4, 2), label="first"),
+            segment((2, 0, 5, 2), label="second"),
+        ]
+        seen = []
+        with patch.object(MODULE, "_sample_once", add_sampler(seen=seen)):
+            output, segs = MODULE.segs_sampler_custom(
+                **arguments(image, entries, start_index=1, max_iteration=2)
+            )
+        self.assertEqual(len(seen), 2)
+        self.assertTrue(torch.all(seen[1]["samples"][:, :, :2] == 1))
+        self.assertIs(segs[1][0], untouched)
+        self.assertTrue(torch.all(output[:, :, :1] == 0))
+        self.assertTrue(torch.all(output[:, :, 1:2] == 1))
+        self.assertTrue(torch.all(output[:, :, 2:4] == 2))
+        self.assertTrue(torch.all(output[:, :, 4:5] == 1))
+        self.assertTrue(torch.all(output[:, :, 5:] == 0))
+
+    def test_empty_iteration_range_does_not_sample_or_composite(self):
+        image = torch.rand((1, 2, 2, 3))
+        entry = segment((0, 0, 2, 2), cropped_image=np.zeros((1, 2, 2, 3), dtype=np.float32))
+        with patch.object(MODULE, "_sample_once", side_effect=AssertionError("must not sample")):
+            output, segs = MODULE.segs_sampler_custom(
+                **arguments(image, [entry], operation="individual", start_index=1)
+            )
+        self.assertTrue(torch.equal(output, image))
+        self.assertIs(segs[1][0], entry)
 
     def test_normal_and_tiled_vae_paths(self):
         image = torch.zeros((1, 2, 2, 3))
