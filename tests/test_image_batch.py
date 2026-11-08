@@ -118,6 +118,7 @@ class ImageBatchListTests(unittest.TestCase):
             "UtilitySuiteSEGSToBBOX",
             "UtilitySuiteSEGSChangeRatio",
             "UtilitySuiteSEGSFilterEmptyMask",
+            "UtilitySuiteSEGSFilterIndex",
             "UtilitySuiteSEGSInsertByIndex",
             "UtilitySuiteSEGSSamplerCustom",
             "UtilitySuiteSEGSSamplerUnsample",

@@ -5,33 +5,11 @@ from typing import Any
 
 from comfy_api.latest import io
 
-from .segs_indices import parse_index_csv
+from .segs_indices import parse_index_csv, validate_segs_indices
 
 SEGS = io.Custom("SEGS")
 SEGS_INDICES = io.Custom("SEGS_INDICES")
 LOGGER = logging.getLogger(__name__)
-
-
-def validate_assignment_indices(index: object, count: int) -> list[int]:
-    if not isinstance(index, list):
-        raise TypeError("SEGS Assign (label) index must be a list of integers.")
-
-    seen: set[int] = set()
-    for position, seg_index in enumerate(index):
-        if isinstance(seg_index, bool) or not isinstance(seg_index, int):
-            raise TypeError(
-                f"SEGS Assign (label) index[{position}] must be an integer, "
-                f"got {type(seg_index).__name__}."
-            )
-        if seg_index < 0 or seg_index >= count:
-            raise ValueError(
-                f"SEGS Assign (label) index[{position}]={seg_index} "
-                f"is outside the valid SEG range 0..{count - 1}."
-            )
-        if seg_index in seen:
-            raise ValueError(f"SEGS Assign (label) index contains duplicate SEG position {seg_index}.")
-        seen.add(seg_index)
-    return index
 
 
 def resolve_assignment_indices(index_text: str, index_input: Any, count: int) -> list[int]:
@@ -43,7 +21,7 @@ def resolve_assignment_indices(index_text: str, index_input: Any, count: int) ->
         indices = index_input
     else:
         indices = list(range(count))
-    return validate_assignment_indices(indices, count)
+    return validate_segs_indices(indices, count, "SEGS Assign (label)")
 
 
 def assign_segs_labels(segs: Any, labels: list[str], indices: list[int]) -> tuple[Any, list[Any]]:
