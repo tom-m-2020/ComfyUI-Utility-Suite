@@ -4,6 +4,7 @@ import sys
 import unittest
 from collections import namedtuple
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
@@ -43,6 +44,7 @@ def run(segs, **overrides):
     values = {
         "ratio": 1.0,
         "tiling": False,
+        "overlap_mode": "pixel",
         "min_overlap": 16,
         "feather_overlap": False,
         "max_tile_size": 2048,
@@ -64,14 +66,16 @@ class SEGSChangeRatioTests(unittest.TestCase):
                 "segs",
                 "ratio",
                 "tiling",
+                "overlap_mode",
                 "min_overlap",
                 "feather_overlap",
                 "max_tile_size",
             ],
         )
-        self.assertEqual(schema.inputs[5].default, 2048)
-        self.assertEqual(schema.inputs[5].min, 512)
-        self.assertEqual(schema.inputs[5].max, 2048)
+        self.assertEqual(schema.inputs[3].default, "pixel")
+        self.assertEqual(schema.inputs[6].default, 2048)
+        self.assertEqual(schema.inputs[6].min, 512)
+        self.assertEqual(schema.inputs[6].max, 2048)
         nodes = asyncio.run(PACKAGE.UtilitySuiteExtension().get_node_list())
         self.assertIn(MODULE.SEGSChangeRatio, nodes)
 
@@ -137,6 +141,44 @@ class SEGSChangeRatioTests(unittest.TestCase):
             height = entry.crop_region[3] - entry.crop_region[1]
             self.assertLessEqual(width * height, 512 * 512)
             self.assertEqual(width, height)
+
+    def test_percent_overlap_resolves_from_each_tile_axis(self):
+        source = segment((0, 0, 1024, 1024))
+
+        with mock.patch.object(
+            MODULE,
+            "build_tile_layout",
+            wraps=MODULE.build_tile_layout,
+        ) as build:
+            run(
+                ((1024, 1024), [source]),
+                ratio=0.5,
+                tiling=True,
+                overlap_mode="percent",
+                min_overlap=20,
+                max_tile_size=512,
+            )
+
+        args = build.call_args.args
+        self.assertEqual((args[2], args[3]), (362, 724))
+        self.assertEqual((args[8], args[9]), (73, 145))
+
+    def test_percent_overlap_rejects_values_above_ninety_only_in_percent_mode(
+        self,
+    ):
+        source = segment((0, 0, 1024, 1024))
+        segs = ((1024, 1024), [source])
+
+        with self.assertRaisesRegex(ValueError, "cannot exceed 90"):
+            run(segs, overlap_mode="percent", min_overlap=91)
+        result = run(
+            segs,
+            tiling=True,
+            overlap_mode="pixel",
+            min_overlap=91,
+            max_tile_size=512,
+        )
+        self.assertGreater(len(result[1]), 1)
 
     def test_tile_limit_caps_expansion_to_original_short_side(self):
         source = segment((0, 198, 1477, 712))
@@ -300,6 +342,8 @@ class SEGSChangeRatioTests(unittest.TestCase):
         source = segment((0, 0, 10, 10), np.zeros((9, 10), dtype=np.float32))
         with self.assertRaisesRegex(ValueError, "ratio must be finite and positive"):
             run(((20, 20), [source]), ratio=0)
+        with self.assertRaisesRegex(ValueError, "overlap_mode must be pixel or percent"):
+            run(((20, 20), [source]), overlap_mode="other")
         with self.assertRaisesRegex(ValueError, "does not match crop_region"):
             run(((20, 20), [source]))
 

@@ -174,6 +174,7 @@ def segs_change_ratio(
     segs: Any,
     ratio: float,
     tiling: bool,
+    overlap_mode: str,
     min_overlap: int,
     feather_overlap: bool,
     max_tile_size: int,
@@ -185,6 +186,16 @@ def segs_change_ratio(
     if min_overlap <= 0:
         raise ValueError(
             f"SEGS Change Ratio min_overlap must be positive, got {min_overlap}."
+        )
+    if overlap_mode not in ("pixel", "percent"):
+        raise ValueError(
+            "SEGS Change Ratio overlap_mode must be pixel or percent, "
+            f"got {overlap_mode!r}."
+        )
+    if overlap_mode == "percent" and min_overlap > 90:
+        raise ValueError(
+            "SEGS Change Ratio min_overlap cannot exceed 90 when "
+            f"overlap_mode is percent, got {min_overlap}."
         )
     if not 512 <= max_tile_size <= 2048:
         raise ValueError(
@@ -216,6 +227,12 @@ def segs_change_ratio(
             ratio,
             max_tile_size,
         )
+        if overlap_mode == "percent":
+            overlap_x = math.ceil(tile_width * min_overlap / 100)
+            overlap_y = math.ceil(tile_height * min_overlap / 100)
+        else:
+            overlap_x = min_overlap
+            overlap_y = min_overlap
         layout = build_tile_layout(
             (1, region_height, region_width, 1),
             "uniform_grid",
@@ -225,8 +242,8 @@ def segs_change_ratio(
             0,
             1,
             1,
-            min_overlap,
-            min_overlap,
+            overlap_x,
+            overlap_y,
             1,
             1,
         )
@@ -263,6 +280,9 @@ class SEGSChangeRatio(io.ComfyNode):
                 SEGS.Input("segs"),
                 io.Float.Input("ratio", default=1.0, min=0.01, max=100.0, step=0.01),
                 io.Boolean.Input("tiling", default=False),
+                io.Combo.Input(
+                    "overlap_mode", options=["pixel", "percent"], default="pixel"
+                ),
                 io.Int.Input("min_overlap", default=64, min=1, max=2047, step=1),
                 io.Boolean.Input("feather_overlap", default=False),
                 io.Int.Input("max_tile_size", default=2048, min=512, max=2048, step=1),
@@ -276,6 +296,7 @@ class SEGSChangeRatio(io.ComfyNode):
         segs: Any,
         ratio: float,
         tiling: bool,
+        overlap_mode: str,
         min_overlap: int,
         feather_overlap: bool,
         max_tile_size: int,
@@ -285,6 +306,7 @@ class SEGSChangeRatio(io.ComfyNode):
                 segs,
                 ratio,
                 tiling,
+                overlap_mode,
                 min_overlap,
                 feather_overlap,
                 max_tile_size,
