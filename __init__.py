@@ -30,6 +30,7 @@ from .list_any import ListAnyAppend
 from .mask_batch import MaskToMaskBatch
 from .mask_batch_combine import MaskBatchToMask
 from .mask_bbox import MaskToBoundingBox
+from .mask_boundary_to_tiles_segs import MaskBoundaryToTilesSEGS
 from .mask_draw import MaskDraw
 from .mask_fill_combined import MaskFillCombined
 from .mask_fill_holes import MaskFillHoles
@@ -81,6 +82,7 @@ class UtilitySuiteExtension(ComfyExtension):
             ListAccumulatorAppend,
             ListAccumulatorToList,
             MaskFromList,
+            MaskBoundaryToTilesSEGS,
             MaskToBoundingBox,
             MaskToMaskBatch,
             MaskBatchToMask,
