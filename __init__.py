@@ -16,6 +16,7 @@ from .batch_mask_to_segs_comparison import BatchMaskToSEGSWithComparison
 from .blur_mask_outward import BlurMaskOutward, BlurMaskOutwardGrowAmount
 from .bridge_masks import BridgeMasks
 from .combine_masks_segs import CombineMasksSEGSAndMASK, CombineMasksSEGSAndSEGS
+from .combine_tiles_segs import CombineTilesSEGS
 from .empty_latent_vae import EmptyLatentFromVAE
 from .each_mask_to_mask_batch import EachMaskToMaskBatch
 from .feather_mask_boundary import FeatherMaskFromBoundary
@@ -70,6 +71,7 @@ class UtilitySuiteExtension(ComfyExtension):
             BlurMaskOutwardGrowAmount,
             CombineMasksSEGSAndMASK,
             CombineMasksSEGSAndSEGS,
+            CombineTilesSEGS,
             EmptyLatentFromVAE,
             EachMaskToMaskBatch,
             FeatherMaskFromBoundary,
