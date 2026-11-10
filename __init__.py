@@ -17,6 +17,7 @@ from .blur_mask_outward import BlurMaskOutward, BlurMaskOutwardGrowAmount
 from .bridge_masks import BridgeMasks
 from .combine_masks_segs import CombineMasksSEGSAndMASK, CombineMasksSEGSAndSEGS
 from .combine_tiles_segs import CombineTilesSEGS
+from .crossfade_mask_overlap_segs import CrossfadeMaskOverlapSEGS
 from .empty_latent_vae import EmptyLatentFromVAE
 from .each_mask_to_mask_batch import EachMaskToMaskBatch
 from .feather_mask_boundary import FeatherMaskFromBoundary
@@ -73,6 +74,7 @@ class UtilitySuiteExtension(ComfyExtension):
             CombineMasksSEGSAndMASK,
             CombineMasksSEGSAndSEGS,
             CombineTilesSEGS,
+            CrossfadeMaskOverlapSEGS,
             EmptyLatentFromVAE,
             EachMaskToMaskBatch,
             FeatherMaskFromBoundary,
