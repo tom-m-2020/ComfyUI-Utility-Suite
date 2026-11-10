@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import operator
 from typing import Any
 
@@ -48,12 +49,27 @@ def _inner_feather(envelope: np.ndarray, amount: int) -> np.ndarray:
     return np.minimum(distance / amount, 1.0).astype(np.float32)
 
 
+def _percent_feather_amount(envelope: np.ndarray, percent: int) -> int:
+    y, x = np.nonzero(envelope > 0)
+    if len(x) == 0:
+        return 0
+    width = int(x.max() - x.min() + 1)
+    height = int(y.max() - y.min() + 1)
+    return math.ceil(min(width, height) * percent / 100)
+
+
 def combine_tiles_segs(
     segs_inputs: dict[str, Any],
     feather_inputs: dict[str, int] | None = None,
+    feather_mode: str = "pixel",
 ) -> tuple[Any, list[Any]]:
     if "segs0" not in segs_inputs:
         raise ValueError("Combine Tiles (SEGS) requires segs0.")
+    if feather_mode not in ("pixel", "percent"):
+        raise ValueError(
+            "Combine Tiles (SEGS) feather_mode must be pixel or percent, "
+            f"got {feather_mode!r}."
+        )
 
     feather_inputs = feather_inputs or {}
     unexpected = set(feather_inputs) - {
@@ -92,6 +108,11 @@ def combine_tiles_segs(
             raise ValueError(
                 f"Combine Tiles (SEGS) feather{slot} must be nonnegative, got {feather}."
             )
+        if feather_mode == "percent" and feather > 50:
+            raise ValueError(
+                f"Combine Tiles (SEGS) feather{slot} cannot exceed 50 when "
+                f"feather_mode is percent, got {feather}."
+            )
 
         masks = [
             _cropped_mask(segment, crop, index)
@@ -102,7 +123,12 @@ def combine_tiles_segs(
             x1, y1, x2, y2 = crop
             envelope[y1:y2, x1:x2] += mask
         np.clip(envelope, 0.0, 1.0, out=envelope)
-        feather_field = _inner_feather(envelope, feather)
+        feather_amount = (
+            _percent_feather_amount(envelope, feather)
+            if feather_mode == "percent"
+            else feather
+        )
+        feather_field = _inner_feather(envelope, feather_amount)
         groups.append((group_index, entries, crops, masks, feather_field, envelope * feather_field))
 
     contributions: list[np.ndarray] = []
@@ -166,6 +192,9 @@ class CombineTilesSEGS(io.ComfyNode):
             category="Utility Suite/SEGS",
             description="Combines SEGS groups with group-boundary inner feathers and deficit-free crossfades between groups.",
             inputs=[
+                io.Combo.Input(
+                    "feather_mode", options=["pixel", "percent"], default="pixel"
+                ),
                 io.Autogrow.Input("segs_inputs", template=segs),
                 io.Autogrow.Input("feather_inputs", template=feathers, optional=True),
             ],
@@ -175,10 +204,13 @@ class CombineTilesSEGS(io.ComfyNode):
     @classmethod
     def execute(
         cls,
+        feather_mode: str,
         segs_inputs: io.Autogrow.Type,
         feather_inputs: io.Autogrow.Type | None = None,
     ) -> io.NodeOutput:
-        return io.NodeOutput(combine_tiles_segs(segs_inputs, feather_inputs))
+        return io.NodeOutput(
+            combine_tiles_segs(segs_inputs, feather_inputs, feather_mode)
+        )
 
 
 __all__ = ["CombineTilesSEGS", "combine_tiles_segs"]

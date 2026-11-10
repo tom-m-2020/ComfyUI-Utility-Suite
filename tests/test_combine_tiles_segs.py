@@ -53,13 +53,17 @@ class CombineTilesSEGSTests(unittest.TestCase):
         self.assertEqual(schema.node_id, "UtilitySuiteCombineTilesSEGS")
         self.assertEqual(schema.display_name, "Combine Tiles (SEGS)")
         self.assertEqual(schema.category, "Utility Suite/SEGS")
-        self.assertEqual([item.id for item in schema.inputs], ["segs_inputs", "feather_inputs"])
-        self.assertEqual(schema.inputs[0].template.prefix, "segs")
-        self.assertEqual(schema.inputs[0].template.min, 1)
-        self.assertEqual(schema.inputs[0].template.get_all()[0].id, "segs0")
-        self.assertEqual(schema.inputs[1].template.prefix, "feather")
-        self.assertTrue(schema.inputs[1].optional)
-        self.assertEqual(schema.inputs[1].template.get_all()[0].id, "feather0")
+        self.assertEqual(
+            [item.id for item in schema.inputs],
+            ["feather_mode", "segs_inputs", "feather_inputs"],
+        )
+        self.assertEqual(schema.inputs[0].default, "pixel")
+        self.assertEqual(schema.inputs[1].template.prefix, "segs")
+        self.assertEqual(schema.inputs[1].template.min, 1)
+        self.assertEqual(schema.inputs[1].template.get_all()[0].id, "segs0")
+        self.assertEqual(schema.inputs[2].template.prefix, "feather")
+        self.assertTrue(schema.inputs[2].optional)
+        self.assertEqual(schema.inputs[2].template.get_all()[0].id, "feather0")
         nodes = asyncio.run(PACKAGE.UtilitySuiteExtension().get_node_list())
         self.assertIn(MODULE.CombineTilesSEGS, nodes)
 
@@ -75,6 +79,38 @@ class CombineTilesSEGSTests(unittest.TestCase):
         self.assertEqual(float(output[2, 3]), 1.0)
         self.assertEqual(result[1][0].crop_region, source[1][0].crop_region)
         self.assertEqual(result[1][0].label, "only")
+
+    def test_percent_feather_uses_each_group_shorter_boundary_axis(self):
+        mask = np.ones((50, 100), dtype=np.float32)
+        source = ((60, 110), [segment((5, 5, 105, 55), mask, "group")])
+
+        percent = MODULE.combine_tiles_segs(
+            {"segs0": source}, {"feather0": 20}, "percent"
+        )
+        pixel = MODULE.combine_tiles_segs(
+            {"segs0": source}, {"feather0": 10}, "pixel"
+        )
+
+        self.assertTrue(
+            np.array_equal(percent[1][0].cropped_mask, pixel[1][0].cropped_mask)
+        )
+
+    def test_percent_feather_rejects_above_fifty_only_in_percent_mode(self):
+        mask = np.ones((120, 120), dtype=np.float32)
+        source = ((120, 120), [segment((0, 0, 120, 120), mask, "group")])
+
+        with self.assertRaisesRegex(ValueError, "cannot exceed 50"):
+            MODULE.combine_tiles_segs(
+                {"segs0": source}, {"feather0": 51}, "percent"
+            )
+        result = MODULE.combine_tiles_segs(
+            {"segs0": source}, {"feather0": 51}, "pixel"
+        )
+        self.assertEqual(len(result[1]), 1)
+
+    def test_rejects_invalid_feather_mode(self):
+        with self.assertRaisesRegex(ValueError, "feather_mode must be pixel or percent"):
+            MODULE.combine_tiles_segs({"segs0": ((5, 5), [])}, feather_mode="other")
 
     def test_two_solid_groups_form_complementary_crossfade_without_deficit(self):
         first = ((7, 9), [segment((0, 0, 9, 7), np.ones((7, 9), dtype=np.float32), "first")])
