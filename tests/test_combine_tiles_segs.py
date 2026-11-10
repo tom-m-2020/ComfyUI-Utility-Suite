@@ -41,7 +41,8 @@ def envelope(segs):
     result = np.zeros((height, width), dtype=np.float32)
     for entry in entries:
         x1, y1, x2, y2 = entry.crop_region
-        np.maximum(result[y1:y2, x1:x2], entry.cropped_mask, out=result[y1:y2, x1:x2])
+        result[y1:y2, x1:x2] += entry.cropped_mask
+    np.clip(result, 0.0, 1.0, out=result)
     return result
 
 
@@ -104,6 +105,35 @@ class CombineTilesSEGSTests(unittest.TestCase):
         left_out, right_out, _ = result[1]
 
         self.assertTrue(np.allclose(right_out.cropped_mask[:, :2], left_out.cropped_mask[:, 4:6] * 0.5))
+
+    def test_complementary_internal_overlap_keeps_full_cross_group_coverage(self):
+        first_mask = np.ones((5, 7), dtype=np.float32)
+        first_mask[:, 4:] = np.array([0.75, 0.5, 0.25], dtype=np.float32)
+        second_mask = np.ones((5, 7), dtype=np.float32)
+        second_mask[:, :3] = np.array([0.25, 0.5, 0.75], dtype=np.float32)
+        group0 = (
+            (5, 11),
+            [
+                segment((0, 0, 7, 5), first_mask, "first"),
+                segment((4, 0, 11, 5), second_mask, "second"),
+            ],
+        )
+        group1 = (
+            (5, 11),
+            [segment((3, 0, 8, 5), np.ones((5, 5), dtype=np.float32), "later")],
+        )
+
+        result = MODULE.combine_tiles_segs(
+            {"segs0": group0, "segs1": group1},
+            {"feather0": 0, "feather1": 3},
+        )
+        combined = np.zeros((5, 11), dtype=np.float32)
+        for entry in result[1]:
+            x1, y1, x2, y2 = entry.crop_region
+            combined[y1:y2, x1:x2] += entry.cropped_mask
+
+        self.assertTrue(np.allclose(combined, 1.0))
+        self.assertTrue(np.allclose(combined[:, 4:7], 1.0))
 
     def test_three_groups_preserve_the_strongest_feathered_coverage(self):
         groups = {}

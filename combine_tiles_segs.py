@@ -100,7 +100,8 @@ def combine_tiles_segs(
         envelope = np.zeros((height, width), dtype=np.float32)
         for mask, crop in zip(masks, crops):
             x1, y1, x2, y2 = crop
-            np.maximum(envelope[y1:y2, x1:x2], mask, out=envelope[y1:y2, x1:x2])
+            envelope[y1:y2, x1:x2] += mask
+        np.clip(envelope, 0.0, 1.0, out=envelope)
         feather_field = _inner_feather(envelope, feather)
         groups.append((group_index, entries, crops, masks, feather_field, envelope * feather_field))
 
