@@ -34,6 +34,7 @@ from .mask_batch import MaskToMaskBatch
 from .mask_batch_combine import MaskBatchToMask
 from .mask_bbox import MaskToBoundingBox
 from .mask_boundary_to_tiles_segs import MaskBoundaryToTilesSEGS
+from .mask_change_ratio import MASKChangeRatio
 from .mask_draw import MaskDraw
 from .mask_fill_combined import MaskFillCombined
 from .mask_fill_holes import MaskFillHoles
@@ -89,6 +90,7 @@ class UtilitySuiteExtension(ComfyExtension):
             ListAccumulatorToList,
             MaskFromList,
             MaskBoundaryToTilesSEGS,
+            MASKChangeRatio,
             MaskToBoundingBox,
             MaskToMaskBatch,
             MaskBatchToMask,
