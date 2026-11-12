@@ -15,6 +15,7 @@ from .bbox_transport import BBOXCollectionToList, BBOXListToCollection
 from .batch_mask_to_segs_comparison import BatchMaskToSEGSWithComparison
 from .blur_mask_outward import BlurMaskOutward, BlurMaskOutwardGrowAmount
 from .bridge_masks import BridgeMasks
+from .combine_feather_segs import CombineFeatherSEGS
 from .combine_masks_segs import CombineMasksSEGSAndMASK, CombineMasksSEGSAndSEGS
 from .combine_tiles_segs import CombineTilesSEGS
 from .crossfade_mask_overlap_segs import CrossfadeMaskOverlapSEGS
@@ -44,6 +45,7 @@ from .mask_list import MaskFromList
 from .mask_tile_segs import MaskToTileSEGS
 from .nested_inpainting_preprocessor import MultiInpaintingMaskProcessor
 from .nested_inpainting_preprocessor_simple import MultiInpaintingMaskProcessorSimple
+from .normalize_feathered_segs import NormalizeFeatheredSEGS
 from .preview_segs_regions import PreviewSEGSRegions
 from .remove_redundant_tile_segs import RemoveRedundantTileSEGS
 from .reorder_batch_mask import ReorderBatchMask
@@ -76,6 +78,7 @@ class UtilitySuiteExtension(ComfyExtension):
             BatchMaskToSEGSWithComparison,
             BlurMaskOutward,
             BlurMaskOutwardGrowAmount,
+            CombineFeatherSEGS,
             CombineMasksSEGSAndMASK,
             CombineMasksSEGSAndSEGS,
             CombineTilesSEGS,
@@ -106,6 +109,7 @@ class UtilitySuiteExtension(ComfyExtension):
             MaskToTileSEGS,
             MultiInpaintingMaskProcessor,
             MultiInpaintingMaskProcessorSimple,
+            NormalizeFeatheredSEGS,
             SEGSToBBOX,
             SEGSChangeRatio,
             SEGSFilterEmptyMask,
