@@ -127,6 +127,7 @@ class ImageBatchListTests(unittest.TestCase):
             "UtilitySuiteSEGSInsertByIndex",
             "UtilitySuiteSEGSSamplerCustom",
             "UtilitySuiteSEGSSamplerUnsample",
+            "UtilitySuiteSEGSUpscaler",
             "UtilitySuiteSEGSSamplerLoopStart",
             "UtilitySuiteSEGSSamplerLoopEnd",
             "UtilitySuiteSEGSSamplerLoopInitialize",

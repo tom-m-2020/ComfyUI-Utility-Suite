@@ -59,6 +59,7 @@ from .segs_range_filter_plus import SEGSRangeFilterPlus
 from .segs_sampler_custom import SEGSSamplerCustom
 from .segs_sampler_loop import LOOP_NODE_CLASSES
 from .segs_sampler_unsample import SEGSSamplerUnsample
+from .segs_upscaler import SEGSUpscaler
 from .tiling import ImageTileBatch, ImageUntileBatch
 
 
@@ -118,6 +119,7 @@ class UtilitySuiteExtension(ComfyExtension):
             SEGSRangeFilterPlus,
             SEGSSamplerCustom,
             SEGSSamplerUnsample,
+            SEGSUpscaler,
             *LOOP_NODE_CLASSES,
             PipeSetAny,
             PipeAnySingle,
