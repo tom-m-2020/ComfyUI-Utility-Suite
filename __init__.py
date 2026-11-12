@@ -44,6 +44,7 @@ from .mask_tile_segs import MaskToTileSEGS
 from .nested_inpainting_preprocessor import MultiInpaintingMaskProcessor
 from .nested_inpainting_preprocessor_simple import MultiInpaintingMaskProcessorSimple
 from .preview_segs_regions import PreviewSEGSRegions
+from .remove_redundant_tile_segs import RemoveRedundantTileSEGS
 from .reorder_batch_mask import ReorderBatchMask
 from .reorder_segs import ReorderSEGS
 from .reroute_optional import RerouteOptional
@@ -111,6 +112,7 @@ class UtilitySuiteExtension(ComfyExtension):
             SEGSInsertByIndex,
             GuideSizeSEGELT,
             PreviewSEGSRegions,
+            RemoveRedundantTileSEGS,
             RestoreTileSEGSGaps,
             RerouteOptional,
             ReorderBatchMask,

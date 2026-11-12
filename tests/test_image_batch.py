@@ -113,6 +113,7 @@ class ImageBatchListTests(unittest.TestCase):
             "UtilitySuiteFilterTileSEGS",
             "UtilitySuiteGuideSizeSEGELT",
             "UtilitySuitePreviewSEGSRegions",
+            "UtilitySuiteRemoveRedundantTileSEGS",
             "UtilitySuiteRestoreTileSEGSGaps",
             "UtilitySuiteRerouteOptional",
                 "UtilitySuiteReorderSEGS",
