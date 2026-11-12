@@ -25,6 +25,7 @@ from .feather_group_masks_segs import FeatherGroupOfMasksSEGS
 from .filter_tile_segs import FilterTileSEGS
 from .guide_size_seg_elt import GuideSizeSEGELT
 from .image_batch import ImageBatchToImageList, ImageListToImageBatch
+from .image_upscale_downscale import UpscaleAndDownscale
 from .input_kind import ListBatchInspector
 from .invert_mask_segs import InvertMaskSEGS
 from .latent_image_size import GetImageSizeFromLatent
@@ -83,6 +84,7 @@ class UtilitySuiteExtension(ComfyExtension):
             FeatherGroupOfMasksSEGS,
             ImageListToImageBatch,
             ImageBatchToImageList,
+            UpscaleAndDownscale,
             ListBatchInspector,
             InvertMaskSEGS,
             GetImageSizeFromLatent,

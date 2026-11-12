@@ -81,7 +81,7 @@ class SEGSUpscalerTests(unittest.TestCase):
         self.assertEqual(upscale.call_count, 1)
         self.assertEqual(tuple(upscale.call_args.args[1].shape), (1, 4, 4, 3))
 
-    def test_overscale_smoothing_uses_five_times_requested_canvas(self):
+    def test_overscale_smoothing_uses_eight_times_requested_canvas(self):
         calls = []
         original_resize = MODULE._resize_image
 
@@ -107,7 +107,7 @@ class SEGSUpscalerTests(unittest.TestCase):
                 512,
                 0,
             )
-        self.assertEqual(calls, [(40, 40, "bicubic"), (8, 8, "bicubic")])
+        self.assertEqual(calls, [(64, 64, "bicubic"), (8, 8, "bicubic")])
         self.assertEqual(tuple(image.shape), (1, 8, 8, 3))
 
     def test_geometry_masks_and_unprocessed_crops_match_scaled_canvas(self):

@@ -233,8 +233,8 @@ def segs_upscaler(
     if overscale_smoothing:
         whole_source = _resize_image(
             whole_source,
-            target_width * 5,
-            target_height * 5,
+            target_width * 8,
+            target_height * 8,
             resampling_method,
         )
     base_canvas = _resize_image(whole_source, target_width, target_height, resampling_method).cpu()
@@ -295,7 +295,7 @@ class SEGSUpscaler(io.ComfyNode):
                 io.Boolean.Input(
                     "overscale_smoothing",
                     default=False,
-                    tooltip="Resizes to 5x the requested canvas dimensions, then downsizes to the requested size.",
+                    tooltip="Resizes to 8x the requested canvas dimensions, then downsizes to the requested size.",
                 ),
                 io.Boolean.Input("use_guide_size", default=True),
                 io.Int.Input(

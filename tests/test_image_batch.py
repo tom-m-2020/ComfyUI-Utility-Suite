@@ -91,6 +91,7 @@ class ImageBatchListTests(unittest.TestCase):
                 "UtilitySuiteFeatherGroupOfMasksSEGS",
                 "UtilitySuiteImageListToImageBatch",
                 "UtilitySuiteImageBatchToImageList",
+                "UtilitySuiteUpscaleAndDownscale",
                 "UtilitySuiteListBatchInspector",
                 "UtilitySuiteInvertMaskSEGS",
                 "UtilitySuiteGetImageSizeFromLatent",
