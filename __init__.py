@@ -46,6 +46,15 @@ from .mask_tile_segs import MaskToTileSEGS
 from .nested_inpainting_preprocessor import MultiInpaintingMaskProcessor
 from .nested_inpainting_preprocessor_simple import MultiInpaintingMaskProcessorSimple
 from .normalize_feathered_segs import NormalizeFeatheredSEGS
+from .pixelwise_mask import PixelwiseMaxMaskAndMask, PixelwiseMinMaskAndMask
+from .pixelwise_segs import (
+    PixelwiseMaxInSEGS,
+    PixelwiseMaxSEGSAndMASK,
+    PixelwiseMaxSEGSAndSEGS,
+    PixelwiseMinInSEGS,
+    PixelwiseMinSEGSAndMASK,
+    PixelwiseMinSEGSAndSEGS,
+)
 from .preview_segs_regions import PreviewSEGSRegions
 from .remove_redundant_tile_segs import RemoveRedundantTileSEGS
 from .reorder_batch_mask import ReorderBatchMask
@@ -110,6 +119,14 @@ class UtilitySuiteExtension(ComfyExtension):
             MultiInpaintingMaskProcessor,
             MultiInpaintingMaskProcessorSimple,
             NormalizeFeatheredSEGS,
+            PixelwiseMinMaskAndMask,
+            PixelwiseMaxMaskAndMask,
+            PixelwiseMinInSEGS,
+            PixelwiseMaxInSEGS,
+            PixelwiseMinSEGSAndSEGS,
+            PixelwiseMaxSEGSAndSEGS,
+            PixelwiseMinSEGSAndMASK,
+            PixelwiseMaxSEGSAndMASK,
             SEGSToBBOX,
             SEGSChangeRatio,
             SEGSFilterEmptyMask,

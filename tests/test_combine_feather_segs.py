@@ -21,8 +21,6 @@ PACKAGE = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = PACKAGE
 SPEC.loader.exec_module(PACKAGE)
 MODULE = sys.modules[f"{SPEC.name}.combine_feather_segs"]
-COMBINE = sys.modules[f"{SPEC.name}.combine_tiles_segs"]
-INVERT = sys.modules[f"{SPEC.name}.invert_mask_segs"]
 
 SEG = namedtuple(
     "SEG",
@@ -35,40 +33,47 @@ def segment(crop, mask, label):
 
 
 class CombineFeatherSEGSTests(unittest.TestCase):
-    def test_matches_explicit_invert_combine_and_remove_source_chain(self):
+    def test_uses_pixelwise_minimum_of_destination_and_source_max(self):
         destination = (
             (4, 8),
             [segment((0, 0, 6, 4), np.full((4, 6), 0.8, dtype=np.float32), "destination")],
         )
         source = (
             (4, 8),
-            [segment((2, 0, 8, 4), np.full((4, 6), 0.3, dtype=np.float32), "source")],
+            [
+                segment((1, 0, 5, 4), np.full((4, 4), 0.3, dtype=np.float32), "source-a"),
+                segment((3, 0, 7, 4), np.full((4, 4), 0.6, dtype=np.float32), "source-b"),
+            ],
         )
-        inverted = INVERT.invert_mask_segs(source)
-        explicit = COMBINE.combine_tiles_segs({"segs0": destination, "segs1": inverted})
-        expected = (explicit[0], explicit[1][: len(destination[1])])
 
         actual = MODULE.combine_feather_segs(destination, source)
+        expected = np.array([[0.0, 0.3, 0.3, 0.6, 0.6, 0.6]], dtype=np.float32)
 
         self.assertEqual(len(actual[1]), 1)
-        np.testing.assert_array_equal(actual[1][0].cropped_mask, expected[1][0].cropped_mask)
+        np.testing.assert_array_equal(actual[1][0].cropped_mask, np.repeat(expected, 4, axis=0))
 
-    def test_inverted_source_owns_overlap_and_source_entry_is_removed(self):
+    def test_source_does_not_invert_or_enlarge_destination(self):
         crop = (0, 0, 4, 3)
-        destination = ((3, 4), [segment(crop, np.ones((3, 4), dtype=np.float32), "destination")])
-        source = ((3, 4), [segment(crop, np.full((3, 4), 0.25, dtype=np.float32), "source")])
+        destination_mask = np.array(
+            [[0.1, 0.4, 0.7, 1.0]], dtype=np.float32
+        ).repeat(3, axis=0)
+        destination = ((3, 4), [segment(crop, destination_mask, "destination")])
+        source = ((3, 4), [segment(crop, np.full((3, 4), 0.5, dtype=np.float32), "source")])
 
         result = MODULE.combine_feather_segs(destination, source)
 
         self.assertEqual([entry.label for entry in result[1]], ["destination"])
-        np.testing.assert_allclose(result[1][0].cropped_mask, 0.25, rtol=0, atol=1e-7)
+        np.testing.assert_array_equal(
+            result[1][0].cropped_mask,
+            np.minimum(destination_mask, 0.5),
+        )
 
-    def test_source_outside_destination_does_not_change_destination(self):
+    def test_source_outside_destination_zeros_destination(self):
         destination_mask = np.linspace(0.1, 0.9, 12, dtype=np.float32).reshape(3, 4)
         destination = ((3, 8), [segment((0, 0, 4, 3), destination_mask, "destination")])
-        source = ((3, 8), [segment((4, 0, 8, 3), np.zeros((3, 4), dtype=np.float32), "source")])
+        source = ((3, 8), [segment((4, 0, 8, 3), np.ones((3, 4), dtype=np.float32), "source")])
         result = MODULE.combine_feather_segs(destination, source)
-        np.testing.assert_array_equal(result[1][0].cropped_mask, destination_mask)
+        np.testing.assert_array_equal(result[1][0].cropped_mask, np.zeros_like(destination_mask))
 
     def test_multiple_destination_entries_preserve_order_and_non_mask_fields(self):
         destinations = [
