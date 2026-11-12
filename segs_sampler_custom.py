@@ -309,7 +309,11 @@ def segs_sampler_custom(
         ):
             interval = f"{minimum}..{maximum}" if maximum is not None else f">= {minimum}"
             raise ValueError(f"SEGS Sampler Custom {name} must be an integer in {interval}, got {value!r}.")
-    header, entries, regions = _validate(image, segs)
+    header, source_entries, regions = _validate(image, segs)
+    entries = [
+        _replace_crop(segment, _crop(image, region).clone())
+        for segment, region in zip(source_entries, regions, strict=True)
+    ]
     start, stop = iteration_bounds(len(entries), start_index, max_iteration)
     if operation not in {"sequential", "individual"}:
         raise ValueError(f"Unsupported operation {operation!r}.")

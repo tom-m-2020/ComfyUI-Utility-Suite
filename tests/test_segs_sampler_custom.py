@@ -201,13 +201,17 @@ class ProcessingTests(unittest.TestCase):
         self.assertTrue(np.all(segs[1][0].cropped_image == 1))
         self.assertTrue(np.all(segs[1][1].cropped_image == 1))
 
-    def test_individual_prefers_existing_crop(self):
+    def test_input_image_overrides_existing_crop_before_individual_sampling(self):
         image = torch.zeros((1, 2, 2, 3))
         source = np.full((1, 2, 2, 3), 4.0, dtype=np.float32)
         seen = []
         with patch.object(MODULE, "_sample_once", add_sampler(0, seen)):
-            MODULE.segs_sampler_custom(**arguments(image, [segment((0, 0, 2, 2), cropped_image=source)], operation="individual"))
-        self.assertTrue(torch.all(seen[0]["samples"] == 4))
+            _, output_segs = MODULE.segs_sampler_custom(
+                **arguments(image, [segment((0, 0, 2, 2), cropped_image=source)], operation="individual")
+            )
+        self.assertTrue(torch.all(seen[0]["samples"] == 0))
+        self.assertTrue(np.all(output_segs[1][0].cropped_image == 0))
+        self.assertTrue(np.all(source == 4))
 
     def test_skipped_and_empty_masks_are_retained_with_metadata(self):
         image = torch.rand((1, 4, 4, 3))
@@ -291,13 +295,15 @@ class ProcessingTests(unittest.TestCase):
                 **arguments(image, entries, operation="individual", start_index=1, max_iteration=1)
             )
         self.assertEqual(len(seen), 1)
-        self.assertTrue(torch.all(seen[0]["samples"] == 5))
+        self.assertTrue(torch.all(seen[0]["samples"] == 0))
         self.assertTrue(torch.all(output[:, :, :2] == 0))
-        self.assertTrue(torch.all(output[:, :, 2:4] == 6))
+        self.assertTrue(torch.all(output[:, :, 2:4] == 1))
         self.assertTrue(torch.all(output[:, :, 4:] == 0))
-        self.assertIs(segs[1][0], entries[0])
-        self.assertIs(segs[1][2], entries[2])
-        self.assertTrue(np.array_equal(segs[1][1].cropped_image, np.full((1, 2, 2, 3), 6, dtype=np.float32)))
+        self.assertIsNot(segs[1][0], entries[0])
+        self.assertIsNot(segs[1][2], entries[2])
+        self.assertTrue(np.array_equal(segs[1][0].cropped_image, np.zeros((1, 2, 2, 3), dtype=np.float32)))
+        self.assertTrue(np.array_equal(segs[1][1].cropped_image, np.ones((1, 2, 2, 3), dtype=np.float32)))
+        self.assertTrue(np.array_equal(segs[1][2].cropped_image, np.zeros((1, 2, 2, 3), dtype=np.float32)))
 
     def test_sequential_partial_range_uses_selected_order_and_preserves_unprocessed_entries(self):
         image = torch.zeros((1, 2, 6, 3))
@@ -314,7 +320,8 @@ class ProcessingTests(unittest.TestCase):
             )
         self.assertEqual(len(seen), 2)
         self.assertTrue(torch.all(seen[1]["samples"][:, :, :2] == 1))
-        self.assertIs(segs[1][0], untouched)
+        self.assertIsNot(segs[1][0], untouched)
+        self.assertTrue(np.array_equal(segs[1][0].cropped_image, np.zeros((1, 2, 2, 3), dtype=np.float32)))
         self.assertTrue(torch.all(output[:, :, :1] == 0))
         self.assertTrue(torch.all(output[:, :, 1:2] == 1))
         self.assertTrue(torch.all(output[:, :, 2:4] == 2))
@@ -329,7 +336,8 @@ class ProcessingTests(unittest.TestCase):
                 **arguments(image, [entry], operation="individual", start_index=1)
             )
         self.assertTrue(torch.equal(output, image))
-        self.assertIs(segs[1][0], entry)
+        self.assertIsNot(segs[1][0], entry)
+        self.assertTrue(np.array_equal(segs[1][0].cropped_image, image.numpy()))
 
     def test_normal_and_tiled_vae_paths(self):
         image = torch.zeros((1, 2, 2, 3))
