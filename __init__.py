@@ -21,6 +21,7 @@ from .crossfade_mask_overlap_segs import CrossfadeMaskOverlapSEGS
 from .empty_latent_vae import EmptyLatentFromVAE
 from .each_mask_to_mask_batch import EachMaskToMaskBatch
 from .feather_mask_boundary import FeatherMaskFromBoundary
+from .feather_mask_boundary_segs import FeatherMaskFromBoundarySEGS
 from .feather_group_masks_segs import FeatherGroupOfMasksSEGS
 from .filter_tile_segs import FilterTileSEGS
 from .guide_size_seg_elt import GuideSizeSEGELT
@@ -82,6 +83,7 @@ class UtilitySuiteExtension(ComfyExtension):
             EmptyLatentFromVAE,
             EachMaskToMaskBatch,
             FeatherMaskFromBoundary,
+            FeatherMaskFromBoundarySEGS,
             FeatherGroupOfMasksSEGS,
             ImageListToImageBatch,
             ImageBatchToImageList,
