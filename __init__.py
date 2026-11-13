@@ -25,6 +25,7 @@ from .feather_group_masks_segs import FeatherGroupOfMasksSEGS
 from .feather_mask_boundary import FeatherMaskFromBoundary
 from .feather_mask_boundary_segs import FeatherMaskFromBoundarySEGS
 from .filter_tile_segs import FilterTileSEGS
+from .fit_dimensions_within_bounds import FitDimensionsWithinBounds
 from .guide_size_seg_elt import GuideSizeSEGELT
 from .image_batch import ImageBatchToImageList, ImageListToImageBatch
 from .image_upscale_downscale import UpscaleAndDownscale
@@ -133,6 +134,7 @@ class UtilitySuiteExtension(ComfyExtension):
             SEGSFilterEmptyMask,
             SEGSFilterIndex,
             FilterTileSEGS,
+            FitDimensionsWithinBounds,
             SEGSInsertByIndex,
             GuideSizeSEGELT,
             PreviewSEGSRegions,

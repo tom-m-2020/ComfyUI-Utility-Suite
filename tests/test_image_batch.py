@@ -122,6 +122,7 @@ class ImageBatchListTests(unittest.TestCase):
             "UtilitySuitePixelwiseMinSEGSAndMASK",
             "UtilitySuitePixelwiseMaxSEGSAndMASK",
             "UtilitySuiteFilterTileSEGS",
+            "UtilitySuiteFitDimensionsWithinBounds",
             "UtilitySuiteGuideSizeSEGELT",
             "UtilitySuitePreviewSEGSRegions",
             "UtilitySuiteRemoveRedundantTileSEGS",
