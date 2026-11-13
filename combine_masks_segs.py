@@ -96,15 +96,43 @@ def _combine_destination(
 
 
 def combine_segs_and_mask(
-    segs: Any, masks: Any, x: int, y: int, operation: str
+    segs: Any, mask: Any, x: int, y: int, operation: str
 ) -> tuple[Any, list[Any]]:
-    # Normalize lazily so an empty destination remains valid with an empty source.
-    header, entries, _ = validated_segs(segs, "Combine Masks (SEGS & MASK)")
-    if not entries:
-        return header, []
-    return _combine_destination(
-        segs, normalize_mask_sources(masks), x, y, operation, "Combine Masks (SEGS & MASK)"
-    )
+    node_name = "Combine Masks (SEGS & MASK)"
+    header, entries, crops = validated_segs(segs, node_name)
+    source = _single_mask(mask, "source MASK")
+    x = integer(x, "x")
+    y = integer(y, "y")
+    if x < 0 or y < 0:
+        raise ValueError(f"{node_name} x and y must be nonnegative, got {(x, y)}.")
+    if operation not in OPERATIONS:
+        raise ValueError(f"Unsupported {node_name} operation {operation!r}.")
+
+    source_height, source_width = source.shape
+    output = []
+    for index, (entry, crop) in enumerate(zip(entries, crops)):
+        if not hasattr(entry, "_replace") or not hasattr(entry, "cropped_mask"):
+            raise TypeError(f"SEGS entry {index} must support structural cropped_mask replacement.")
+        x1, y1, x2, y2 = crop
+        destination = torch.from_numpy(_mask_array(entry, index, y2 - y1, x2 - x1))
+        overlap_x1 = max(x1, x)
+        overlap_y1 = max(y1, y)
+        overlap_x2 = min(x2, x + source_width)
+        overlap_y2 = min(y2, y + source_height)
+        if overlap_x1 < overlap_x2 and overlap_y1 < overlap_y2:
+            source_portion = source[
+                overlap_y1 - y : overlap_y2 - y,
+                overlap_x1 - x : overlap_x2 - x,
+            ]
+            destination = mask_composite(
+                destination,
+                source_portion,
+                overlap_x1 - x1,
+                overlap_y1 - y1,
+                operation,
+            )[0]
+        output.append(entry._replace(cropped_mask=destination.detach().cpu().numpy().copy()))
+    return header, output
 
 
 def combine_segs_and_segs(
@@ -146,12 +174,11 @@ class CombineMasksSEGSAndMASK(io.ComfyNode):
             "UtilitySuiteCombineMasksSEGSAndMASK",
             "Combine Masks (SEGS & MASK)",
             [SEGS.Input("segs"), io.Mask.Input("masks")],
-            is_input_list=True,
         )
 
     @classmethod
-    def execute(cls, segs: list[Any], masks: list[Any], x: list[int], y: list[int], operation: list[str]) -> io.NodeOutput:
-        return io.NodeOutput(combine_segs_and_mask(segs[0], masks, x[0], y[0], operation[0]))
+    def execute(cls, segs: Any, masks: torch.Tensor, x: int, y: int, operation: str) -> io.NodeOutput:
+        return io.NodeOutput(combine_segs_and_mask(segs, masks, x, y, operation))
 
 
 class CombineMasksSEGSAndSEGS(io.ComfyNode):

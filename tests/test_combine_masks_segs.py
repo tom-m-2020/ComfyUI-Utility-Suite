@@ -61,50 +61,47 @@ class CombineMasksSEGSTests(unittest.TestCase):
             actual = MODULE.mask_composite(destination_mask, source, 3, 1, operation)
             torch.testing.assert_close(actual, expected, rtol=0, atol=0)
 
-    def test_one_destination_one_source_reference_equivalence(self):
-        segs = destination(1)
-        source = torch.tensor([[1.0, 0.5], [0.0, 0.8]])
-        expected = MaskComposite.execute(torch.from_numpy(segs[1][0].cropped_mask), source, 2, 1, "add").result[0][0]
-        actual = MODULE.combine_segs_and_mask(segs, source, 2, 1, "add")[1][0].cropped_mask
-        np.testing.assert_array_equal(actual, expected.numpy())
-
-    def test_mask_tensor_batch_is_split_in_batch_order(self):
+    def test_full_canvas_mask_is_sliced_by_each_crop_region(self):
         segs = destination(3)
-        source = torch.stack([torch.zeros((4, 5)), torch.full((4, 5), 0.5), torch.ones((4, 5))])
+        source = torch.zeros((4, 30))
+        source[:, 0:5] = 0.1
+        source[:, 10:15] = 0.5
+        source[:, 20:25] = 0.9
+
         result = MODULE.combine_segs_and_mask(segs, source, 0, 0, "multiply")
-        np.testing.assert_array_equal(result[1][0].cropped_mask, 0)
+
+        np.testing.assert_allclose(result[1][0].cropped_mask, 0.02)
         np.testing.assert_allclose(result[1][1].cropped_mask, 0.2)
-        np.testing.assert_allclose(result[1][2].cropped_mask, 0.6)
+        np.testing.assert_allclose(result[1][2].cropped_mask, 0.54)
 
-    def test_single_mask_repeats_for_every_destination(self):
-        segs = destination(3)
-        source = torch.full((4, 5), 0.5)
+    def test_global_offset_positions_mask_on_source_canvas(self):
+        crop = (10, 5, 15, 9)
+        entry = segment(0, np.full((4, 5), 0.8, dtype=np.float32), crop=crop)
+        source = torch.tensor([[0.1, 0.2], [0.3, 0.4]])
+
+        result = MODULE.combine_segs_and_mask(((20, 30), [entry]), source, 12, 6, "subtract")
+
+        expected = np.full((4, 5), 0.8, dtype=np.float32)
+        expected[1:3, 2:4] -= source.numpy()
+        np.testing.assert_allclose(result[1][0].cropped_mask, expected)
+
+    def test_mask_larger_than_canvas_is_clipped_by_intersections(self):
+        segs = destination(1)
+        source = torch.full((20, 20), 0.5)
         result = MODULE.combine_segs_and_mask(segs, source, 0, 0, "multiply")
-        for original, combined in zip(segs[1], result[1]):
-            np.testing.assert_allclose(combined.cropped_mask, original.cropped_mask * 0.5)
+        np.testing.assert_allclose(result[1][0].cropped_mask, 0.1)
 
-    def test_comfy_mask_list_order_and_last_reuse(self):
-        segs = destination(5)
-        sources = [torch.zeros((4, 5)), torch.ones((4, 5))]
-        result = MODULE.combine_segs_and_mask(segs, sources, 0, 0, "multiply")
-        np.testing.assert_array_equal(result[1][0].cropped_mask, 0)
-        for index in range(1, 5):
-            np.testing.assert_allclose(result[1][index].cropped_mask, segs[1][index].cropped_mask)
+    def test_nonoverlapping_global_mask_leaves_seg_unchanged(self):
+        segs = destination(1)
+        original = segs[1][0].cropped_mask.copy()
+        result = MODULE.combine_segs_and_mask(segs, torch.zeros((2, 2)), 8, 8, "subtract")
+        np.testing.assert_array_equal(result[1][0].cropped_mask, original)
 
-    def test_surplus_mask_sources_are_truncated(self):
-        segs = destination(2)
-        sources = [torch.zeros((4, 5)), torch.ones((4, 5)), torch.full((4, 5), 0.75)]
-        result = MODULE.combine_segs_and_mask(segs, sources, 0, 0, "multiply")
-        self.assertEqual(len(result[1]), 2)
-        np.testing.assert_array_equal(result[1][0].cropped_mask, 0)
-        np.testing.assert_allclose(result[1][1].cropped_mask, segs[1][1].cropped_mask)
-
-    def test_whole_list_execute_normalizes_wrapped_tensor_batch(self):
-        segs = destination(2)
-        source = torch.stack([torch.zeros((4, 5)), torch.ones((4, 5))])
-        result = MODULE.CombineMasksSEGSAndMASK.execute([segs], [source], [0], [0], ["multiply"]).result[0]
-        np.testing.assert_array_equal(result[1][0].cropped_mask, 0)
-        np.testing.assert_allclose(result[1][1].cropped_mask, segs[1][1].cropped_mask)
+    def test_execute_accepts_one_mask_without_list_transport(self):
+        segs = destination(1)
+        source = torch.full((4, 5), 0.5)
+        result = MODULE.CombineMasksSEGSAndMASK.execute(segs, source, 0, 0, "multiply").result[0]
+        np.testing.assert_allclose(result[1][0].cropped_mask, 0.1)
 
     def test_segs_source_pairs_by_order_and_reuses_last(self):
         dest = destination(4)
@@ -128,23 +125,14 @@ class CombineMasksSEGSTests(unittest.TestCase):
         ).result[0][0]
         np.testing.assert_array_equal(result[1][0].cropped_mask, expected.numpy())
 
-    def test_both_nodes_are_equivalent_for_same_source_sequence(self):
-        dest = destination(3)
-        source_masks = [torch.linspace(0, 1, 20).reshape(4, 5), torch.linspace(1, 0, 20).reshape(4, 5)]
-        source_entries = [segment(index, mask.numpy()) for index, mask in enumerate(source_masks)]
-        from_mask = MODULE.combine_segs_and_mask(dest, source_masks, 1, 0, "xor")
-        from_segs = MODULE.combine_segs_and_segs(dest, ((4, 20), source_entries), 1, 0, "xor")
-        for first, second in zip(masks(from_mask), masks(from_segs)):
-            np.testing.assert_array_equal(first, second)
-
     def test_empty_destination_preserves_header_even_with_empty_source(self):
         header = [10, 20]
-        self.assertIs(MODULE.combine_segs_and_mask((header, []), [], 0, 0, "add")[0], header)
+        self.assertIs(MODULE.combine_segs_and_mask((header, []), torch.zeros((1, 1)), 0, 0, "add")[0], header)
         self.assertIs(MODULE.combine_segs_and_segs((header, []), ((1, 1), []), 0, 0, "add")[0], header)
 
-    def test_empty_source_fails_clearly_for_nonempty_destination(self):
+    def test_invalid_mask_fails_clearly_for_nonempty_destination(self):
         dest = destination(1)
-        with self.assertRaisesRegex(ValueError, "at least one source mask"):
+        with self.assertRaisesRegex(TypeError, "source MASK"):
             MODULE.combine_segs_and_mask(dest, [], 0, 0, "add")
         with self.assertRaisesRegex(ValueError, "at least one source mask"):
             MODULE.combine_segs_and_segs(dest, ((1, 1), []), 0, 0, "add")
@@ -169,6 +157,8 @@ class CombineMasksSEGSTests(unittest.TestCase):
         dest = destination(1)
         with self.assertRaisesRegex(TypeError, "source MASK"):
             MODULE.combine_segs_and_mask(dest, np.zeros((4, 5)), 0, 0, "add")
+        with self.assertRaisesRegex(ValueError, r"\[H,W\] or \[1,H,W\]"):
+            MODULE.combine_segs_and_mask(dest, torch.zeros((2, 4, 5)), 0, 0, "add")
         with self.assertRaisesRegex(ValueError, "nonnegative"):
             MODULE.combine_segs_and_mask(dest, torch.ones((4, 5)), -1, 0, "add")
         with self.assertRaisesRegex(ValueError, "operation"):
@@ -183,7 +173,7 @@ class CombineMasksSEGSTests(unittest.TestCase):
         self.assertEqual(mask_schema.display_name, "Combine Masks (SEGS & MASK)")
         self.assertEqual(segs_schema.display_name, "Combine Masks (SEGS & SEGS)")
         self.assertEqual(mask_schema.category, "Utility Suite/SEGS")
-        self.assertTrue(mask_schema.is_input_list)
+        self.assertFalse(mask_schema.is_input_list)
         self.assertFalse(segs_schema.is_input_list)
         self.assertEqual(mask_schema.inputs[-1].options, list(MODULE.OPERATIONS))
         self.assertEqual(segs_schema.inputs[-1].options, list(MODULE.OPERATIONS))
