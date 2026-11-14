@@ -18,6 +18,7 @@ from .bridge_masks import BridgeMasks
 from .combine_feather_segs import CombineFeatherSEGS
 from .combine_masks_segs import CombineMasksSEGSAndMASK, CombineMasksSEGSAndSEGS
 from .combine_tiles_segs import CombineTilesSEGS
+from .composite_for_outpainting import CompositeForOutpainting
 from .crossfade_mask_overlap_segs import CrossfadeMaskOverlapSEGS
 from .each_mask_to_mask_batch import EachMaskToMaskBatch
 from .empty_latent_vae import EmptyLatentFromVAE
@@ -94,6 +95,7 @@ class UtilitySuiteExtension(ComfyExtension):
             CombineMasksSEGSAndMASK,
             CombineMasksSEGSAndSEGS,
             CombineTilesSEGS,
+            CompositeForOutpainting,
             CrossfadeMaskOverlapSEGS,
             EmptyLatentFromVAE,
             EachMaskToMaskBatch,
