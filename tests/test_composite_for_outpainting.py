@@ -24,7 +24,7 @@ def run_node(
     canvas: torch.Tensor,
     subject: torch.Tensor,
     **overrides,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     options = {
         "x_percent": 50,
         "y_percent": 50,
@@ -36,6 +36,7 @@ def run_node(
         "blur_radius": 0.0,
         "tapered_corners": False,
         "combine_mask": "pixelwise min",
+        "threshold": 0.0,
         "canvas_mask": None,
         "subject_mask": None,
     }
@@ -47,11 +48,12 @@ class CompositeForOutpaintingTests(unittest.TestCase):
     def test_missing_subject_mask_creates_centered_rectangular_hole(self):
         canvas = torch.ones((1, 6, 8, 3))
         subject = torch.zeros((1, 2, 4, 3))
-        composited, masked, mask = run_node(canvas, subject)
+        composited, masked, mask, hard_mask = run_node(canvas, subject)
 
         expected_mask = torch.ones((1, 6, 8))
         expected_mask[:, 2:4, 2:6] = 0
         torch.testing.assert_close(mask, expected_mask, rtol=0, atol=0)
+        torch.testing.assert_close(hard_mask, expected_mask, rtol=0, atol=0)
         torch.testing.assert_close(composited[:, 2:4, 2:6], subject, rtol=0, atol=0)
         torch.testing.assert_close(masked, composited, rtol=0, atol=0)
         torch.testing.assert_close(canvas, torch.ones_like(canvas), rtol=0, atol=0)
@@ -60,7 +62,7 @@ class CompositeForOutpaintingTests(unittest.TestCase):
         canvas = torch.ones((1, 1, 4, 3))
         subject = torch.zeros((1, 1, 2, 3))
         subject_mask = torch.tensor([[[1.0, 0.0]]])
-        composited, masked, mask = run_node(
+        composited, masked, mask, _ = run_node(
             canvas,
             subject,
             x_percent=0,
@@ -76,7 +78,7 @@ class CompositeForOutpaintingTests(unittest.TestCase):
     def test_fit_in_canvas_preserves_aspect_ratio_and_ignores_target_size(self):
         canvas = torch.ones((1, 8, 10, 3))
         subject = torch.zeros((1, 4, 2, 3))
-        composited, _, mask = run_node(
+        composited, _, mask, _ = run_node(
             canvas,
             subject,
             resize=True,
@@ -92,7 +94,7 @@ class CompositeForOutpaintingTests(unittest.TestCase):
         canvas = torch.ones((1, 10, 20, 3))
         subject = torch.zeros((1, 2, 4, 3))
 
-        _, _, width_mask = run_node(
+        _, _, width_mask, _ = run_node(
             canvas,
             subject,
             resize=True,
@@ -102,7 +104,7 @@ class CompositeForOutpaintingTests(unittest.TestCase):
         )
         self.assertEqual(int(torch.count_nonzero(width_mask == 0)), 50)
 
-        _, _, height_mask = run_node(
+        _, _, height_mask, _ = run_node(
             canvas,
             subject,
             resize=True,
@@ -115,7 +117,7 @@ class CompositeForOutpaintingTests(unittest.TestCase):
     def test_zero_manual_target_leaves_subject_unchanged(self):
         canvas = torch.ones((1, 7, 9, 3))
         subject = torch.zeros((1, 3, 5, 3))
-        _, _, mask = run_node(
+        _, _, mask, _ = run_node(
             canvas,
             subject,
             resize=True,
@@ -149,7 +151,7 @@ class CompositeForOutpaintingTests(unittest.TestCase):
         canvas = torch.ones((1, 6, 6, 3))
         subject = torch.zeros((1, 2, 2, 3))
         subject_mask = torch.ones((1, 1, 1))
-        _, _, mask = run_node(
+        _, _, mask, _ = run_node(
             canvas,
             subject,
             resize=True,
@@ -163,14 +165,14 @@ class CompositeForOutpaintingTests(unittest.TestCase):
         canvas = torch.ones((1, 61, 61, 3))
         subject = torch.zeros((1, 31, 31, 3))
         previous = torch.full((1, 61, 61), 0.5)
-        _, _, minimum = run_node(
+        _, _, minimum, _ = run_node(
             canvas,
             subject,
             blur_radius=2.0,
             canvas_mask=previous,
             combine_mask="pixelwise min",
         )
-        _, _, multiplied = run_node(
+        _, _, multiplied, _ = run_node(
             canvas,
             subject,
             blur_radius=2.0,
@@ -183,20 +185,20 @@ class CompositeForOutpaintingTests(unittest.TestCase):
     def test_negative_coordinates_clip_oversized_subject_symmetrically(self):
         canvas = torch.zeros((1, 4, 4, 3))
         subject = torch.arange(36, dtype=torch.float32).reshape(1, 6, 6, 1).expand(-1, -1, -1, 3)
-        composited, _, mask = run_node(canvas, subject)
+        composited, _, mask, _ = run_node(canvas, subject)
         torch.testing.assert_close(composited, subject[:, 1:5, 1:5], rtol=0, atol=0)
         self.assertTrue(torch.all(mask == 0))
 
     def test_outputs_chain_without_losing_previous_mask_holes(self):
         canvas = torch.ones((1, 2, 8, 3))
         subject = torch.zeros((1, 2, 2, 3))
-        first_image, _, first_mask = run_node(
+        first_image, _, first_mask, _ = run_node(
             canvas,
             subject,
             x_percent=0,
             y_percent=0,
         )
-        second_image, _, second_mask = run_node(
+        second_image, _, second_mask, _ = run_node(
             first_image,
             subject,
             x_percent=100,
@@ -208,6 +210,52 @@ class CompositeForOutpaintingTests(unittest.TestCase):
         self.assertTrue(torch.all(second_mask[:, :, :2] == 0))
         self.assertTrue(torch.all(second_mask[:, :, -2:] == 0))
         self.assertTrue(torch.all(second_mask[:, :, 2:6] == 1))
+
+    def test_hard_mask_thresholds_inverse_of_final_canvas_mask(self):
+        canvas = torch.ones((1, 1, 4, 3))
+        subject = torch.zeros((1, 1, 1, 3))
+        subject_mask = torch.zeros((1, 1, 1))
+        canvas_mask = torch.tensor([[[1.0, 0.75, 0.25, 0.0]]])
+
+        _, _, unchanged, hard_zero = run_node(
+            canvas,
+            subject,
+            x_percent=0,
+            y_percent=0,
+            subject_mask=subject_mask,
+            canvas_mask=canvas_mask,
+            threshold=0.0,
+        )
+        torch.testing.assert_close(unchanged, canvas_mask, rtol=0, atol=0)
+        torch.testing.assert_close(
+            hard_zero,
+            torch.tensor([[[1.0, 0.0, 0.0, 0.0]]]),
+            rtol=0,
+            atol=0,
+        )
+
+        _, _, _, hard_half = run_node(
+            canvas,
+            subject,
+            x_percent=0,
+            y_percent=0,
+            subject_mask=subject_mask,
+            canvas_mask=canvas_mask,
+            threshold=0.5,
+        )
+        torch.testing.assert_close(
+            hard_half,
+            torch.tensor([[[1.0, 1.0, 0.0, 0.0]]]),
+            rtol=0,
+            atol=0,
+        )
+
+    def test_threshold_validation(self):
+        canvas = torch.ones((1, 2, 2, 3))
+        subject = torch.zeros((1, 1, 1, 3))
+        for threshold in (-0.01, 1.01, float("nan"), True):
+            with self.subTest(threshold=threshold), self.assertRaises((TypeError, ValueError)):
+                run_node(canvas, subject, threshold=threshold)
 
     def test_schema_and_registration_contract(self):
         schema = MODULE.CompositeForOutpainting.define_schema()
@@ -231,16 +279,21 @@ class CompositeForOutpaintingTests(unittest.TestCase):
                 "blur_radius",
                 "tapered_corners",
                 "combine_mask",
+                "threshold",
             ],
         )
         self.assertEqual(
             [item.id for item in schema.outputs],
-            ["canvas_image", "canvas_image_masked", "canvas_mask"],
+            ["canvas_image", "canvas_image_masked", "canvas_mask", "canvas_mask_hard"],
         )
         self.assertEqual((schema.inputs[4].min, schema.inputs[4].max), (0, 100))
         self.assertEqual((schema.inputs[5].min, schema.inputs[5].max), (0, 100))
         self.assertEqual(schema.inputs[9].min, 0)
         self.assertEqual(schema.inputs[11].step, 0.1)
+        self.assertEqual(
+            (schema.inputs[14].default, schema.inputs[14].min, schema.inputs[14].max),
+            (0.0, 0.0, 1.0),
+        )
         self.assertIn(
             MODULE.CompositeForOutpainting,
             asyncio.run(PACKAGE.UtilitySuiteExtension().get_node_list()),

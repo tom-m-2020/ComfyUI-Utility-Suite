@@ -192,9 +192,10 @@ def composite_for_outpainting(
     blur_radius: float,
     tapered_corners: bool,
     combine_mask: MaskCombination,
+    threshold: float,
     canvas_mask: torch.Tensor | None = None,
     subject_mask: torch.Tensor | None = None,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     canvas_image = _image(canvas_image, "canvas_image")
     subject_image = _image(subject_image, "subject_image")
     if scale_method not in UPSCALE_METHODS:
@@ -219,6 +220,14 @@ def composite_for_outpainting(
     if not math.isfinite(float(blur_radius)) or not 0 <= blur_radius <= 100:
         raise ValueError(
             f"Composite for Outpainting blur_radius must be finite and within 0..100, got {blur_radius!r}."
+        )
+    if isinstance(threshold, bool) or not isinstance(threshold, (int, float)):
+        raise TypeError(
+            f"Composite for Outpainting threshold must be a number, got {threshold!r}."
+        )
+    if not math.isfinite(float(threshold)) or not 0 <= threshold <= 1:
+        raise ValueError(
+            f"Composite for Outpainting threshold must be finite and within 0..1, got {threshold!r}."
         )
 
     canvas_height, canvas_width = canvas_image.shape[1:3]
@@ -309,7 +318,8 @@ def composite_for_outpainting(
         dtype=canvas_image.dtype,
     ).unsqueeze(-1)
     masked = canvas_image + subject_alpha * (composited - canvas_image)
-    return composited, masked, output_mask
+    output_mask_hard = 1.0 - ((1.0 - output_mask) > threshold).to(output_mask.dtype)
+    return composited, masked, output_mask, output_mask_hard
 
 
 class CompositeForOutpainting(io.ComfyNode):
@@ -341,11 +351,13 @@ class CompositeForOutpainting(io.ComfyNode):
                     options=MASK_COMBINATIONS,
                     default="pixelwise min",
                 ),
+                io.Float.Input("threshold", default=0.0, min=0.0, max=1.0, step=0.01),
             ],
             outputs=[
                 io.Image.Output("canvas_image"),
                 io.Image.Output("canvas_image_masked"),
                 io.Mask.Output("canvas_mask"),
+                io.Mask.Output("canvas_mask_hard"),
             ],
         )
 
@@ -364,6 +376,7 @@ class CompositeForOutpainting(io.ComfyNode):
         blur_radius: float,
         tapered_corners: bool,
         combine_mask: MaskCombination,
+        threshold: float,
         canvas_mask: torch.Tensor | None = None,
         subject_mask: torch.Tensor | None = None,
     ) -> io.NodeOutput:
@@ -381,6 +394,7 @@ class CompositeForOutpainting(io.ComfyNode):
                 blur_radius,
                 tapered_corners,
                 combine_mask,
+                threshold,
                 canvas_mask,
                 subject_mask,
             )
