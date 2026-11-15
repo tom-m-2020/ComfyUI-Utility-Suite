@@ -62,6 +62,7 @@ from .preview_segs_regions import PreviewSEGSRegions
 from .remove_redundant_tile_segs import RemoveRedundantTileSEGS
 from .reorder_batch_mask import ReorderBatchMask
 from .reorder_segs import ReorderSEGS
+from .replace_seg_elt_bbox_with_mask import ReplaceSEGELTBBoxWithMASK
 from .reroute_optional import RerouteOptional
 from .restore_tile_segs_gaps import RestoreTileSEGSGaps
 from .seg_from_segs import SEGFromSEGS
@@ -151,6 +152,7 @@ class UtilitySuiteExtension(ComfyExtension):
             RerouteOptional,
             ReorderBatchMask,
             ReorderSEGS,
+            ReplaceSEGELTBBoxWithMASK,
             SEGPaste,
             SEGFromSEGS,
             SEGSAssignLabel,
