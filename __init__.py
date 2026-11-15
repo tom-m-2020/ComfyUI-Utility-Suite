@@ -81,6 +81,7 @@ from .segs_sampler_unsample import SEGSSamplerUnsample
 from .segs_upscaler import SEGSUpscaler
 from .set_default_mask_segs import SetDefaultMaskForSEGS
 from .tiling import ImageTileBatch, ImageUntileBatch
+from .update_seg_elt_bbox import UpdateSEGELTBBox
 
 
 class UtilitySuiteExtension(ComfyExtension):
@@ -170,6 +171,7 @@ class UtilitySuiteExtension(ComfyExtension):
             BBOXListToCollection,
             BBOXCollectionToList,
             BBOXCoordinates,
+            UpdateSEGELTBBox,
         ]
 
 
