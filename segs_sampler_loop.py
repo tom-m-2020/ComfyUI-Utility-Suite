@@ -327,7 +327,7 @@ class SEGSSamplerLoopStart(io.ComfyNode):
     def define_schema(cls) -> io.Schema:
         return io.Schema(
             node_id="UtilitySuiteSEGSSamplerLoopStart",
-            display_name="SEGS Sampler Loop Start",
+            display_name="SEGS Loop Start",
             category="Utility Suite/SEGS",
             loop_boundary="start",
             enable_expand=True,
@@ -402,7 +402,7 @@ class SEGSSamplerLoopEnd(io.ComfyNode):
         )
         return io.Schema(
             node_id="UtilitySuiteSEGSSamplerLoopEnd",
-            display_name="SEGS Sampler Loop End",
+            display_name="SEGS Loop Sample",
             category="Utility Suite/SEGS",
             loop_boundary="end",
             inputs=[

@@ -202,8 +202,8 @@ class SEGSSamplerLoopTests(unittest.TestCase):
     def test_schema_defaults_outputs_and_registration(self):
         start = MODULE.SEGSSamplerLoopStart.define_schema()
         end = MODULE.SEGSSamplerLoopEnd.define_schema()
-        self.assertEqual(start.display_name, "SEGS Sampler Loop Start")
-        self.assertEqual(end.display_name, "SEGS Sampler Loop End")
+        self.assertEqual(start.display_name, "SEGS Loop Start")
+        self.assertEqual(end.display_name, "SEGS Loop Sample")
         self.assertEqual(start.loop_boundary, "start")
         self.assertEqual(end.loop_boundary, "end")
         self.assertEqual([output.id for output in start.outputs], [
