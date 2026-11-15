@@ -69,6 +69,7 @@ from .seg_paste import SEGPaste
 from .segs_assign_label import SEGSAssignLabel
 from .segs_bbox import SEGSToBBOX
 from .segs_change_ratio import SEGSChangeRatio
+from .segs_count import SEGSCount
 from .segs_filter_empty_mask import SEGSFilterEmptyMask
 from .segs_filter_index import SEGSFilterIndex
 from .segs_insert_by_index import SEGSInsertByIndex
@@ -135,6 +136,7 @@ class UtilitySuiteExtension(ComfyExtension):
             PixelwiseMaxSEGSAndMASK,
             SEGSToBBOX,
             SEGSChangeRatio,
+            SEGSCount,
             SEGSFilterEmptyMask,
             SEGSFilterIndex,
             FilterTileSEGS,
