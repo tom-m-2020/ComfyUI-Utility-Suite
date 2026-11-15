@@ -131,6 +131,18 @@ class GraphTermination:
         return (image,)
 
 
+class GraphPassUpdate:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"image": ("IMAGE",), "segs": ("SEGS",)}}
+
+    RETURN_TYPES = ("IMAGE", "SEGS")
+    FUNCTION = "execute"
+
+    def execute(self, image, segs):
+        return image + 1, segs
+
+
 class ExecutionServer:
     client_id = None
 
@@ -202,10 +214,13 @@ class SEGSSamplerLoopTests(unittest.TestCase):
     def test_schema_defaults_outputs_and_registration(self):
         start = MODULE.SEGSSamplerLoopStart.define_schema()
         end = MODULE.SEGSSamplerLoopEnd.define_schema()
+        loop_pass = MODULE.SEGSLoopPass.define_schema()
         self.assertEqual(start.display_name, "SEGS Loop Start")
         self.assertEqual(end.display_name, "SEGS Loop Sample")
+        self.assertEqual(loop_pass.display_name, "SEGS Loop Pass")
         self.assertEqual(start.loop_boundary, "start")
         self.assertEqual(end.loop_boundary, "end")
+        self.assertEqual(loop_pass.loop_boundary, "end")
         self.assertEqual([output.id for output in start.outputs], [
             "loop", "segs_index", "segs", "image", "seg_elt", "cropped_image", "cropped_mask",
             "crop_region", "bbox", "confidence", "label",
@@ -218,6 +233,57 @@ class SEGSSamplerLoopTests(unittest.TestCase):
         nodes = asyncio.run(PACKAGE.UtilitySuiteExtension().get_node_list())
         self.assertIn(MODULE.SEGSSamplerLoopStart, nodes)
         self.assertIn(MODULE.SEGSSamplerLoopEnd, nodes)
+        self.assertIn(MODULE.SEGSLoopPass, nodes)
+
+    def test_loop_pass_carries_optional_image_or_existing_loop_image(self):
+        image, segs = source()
+        state = MODULE._initialize_state(image, segs, 0, 1)
+        replacement = torch.full_like(image, 3)
+        carried_image, carried_segs = MODULE._pass_loop_state(state, state.current_segs)
+        self.assertIs(carried_image, image)
+        self.assertIs(carried_segs, state.current_segs)
+        updated_image, updated_segs = MODULE._pass_loop_state(state, state.current_segs, replacement)
+        self.assertIs(updated_image, replacement)
+        self.assertIs(updated_segs, state.current_segs)
+
+    def test_native_execution_accepts_loop_pass_as_end_boundary(self):
+        registered = {cls.define_schema().node_id: cls for cls in MODULE.LOOP_NODE_CLASSES}
+        registered.update({
+            "LoopGraphSource": GraphSource,
+            "LoopGraphPassUpdate": GraphPassUpdate,
+            "LoopGraphCapture": GraphCapture,
+        })
+        image = torch.zeros((1, 4, 4, 3))
+        GraphSource.image = image
+        GraphSource.segs = ((4, 4), [segment((0, 0, 4, 4)), segment((0, 0, 4, 4))])
+        GraphCapture.values = []
+        prompt = {
+            "source": {"class_type": "LoopGraphSource", "inputs": {}},
+            "start": {
+                "class_type": "UtilitySuiteSEGSSamplerLoopStart",
+                "inputs": {"image": ["source", 0], "segs": ["source", 1], "start_index": 0, "max_iteration": -1},
+            },
+            "update": {
+                "class_type": "LoopGraphPassUpdate",
+                "inputs": {"image": ["start", 3], "segs": ["start", 2]},
+            },
+            "end": {
+                "class_type": "UtilitySuiteSEGSLoopPass",
+                "inputs": {"loop": ["start", 0], "segs": ["update", 1], "image": ["update", 0]},
+            },
+            "capture": {"class_type": "LoopGraphCapture", "inputs": {"image": ["end", 0], "segs": ["end", 1]}},
+        }
+        import server
+
+        with patch.dict(nodes.NODE_CLASS_MAPPINGS, registered), patch.object(
+            server.PromptServer, "instance", ProgressServer(), create=True
+        ):
+            validate_loops(prompt, {"capture"}, prompt, {"start"}, {"end"})
+            executor = PromptExecutor(ExecutionServer(), cache_type=False, cache_args={"ram": 0, "ram_inactive": 0})
+            executor.execute(prompt, "loop-pass", {}, ["capture"])
+
+        self.assertTrue(executor.success)
+        self.assertTrue(torch.all(GraphCapture.values[0][0] == 2))
 
     def test_initialization_refreshes_every_crop_and_preserves_metadata(self):
         image, segs = source()

@@ -455,6 +455,69 @@ class SEGSSamplerLoopEnd(io.ComfyNode):
             )
         )
 
+
+def _pass_loop_state(loop: SEGSSamplerLoopState, segs: Any, image: torch.Tensor | None = None) -> tuple[torch.Tensor, Any]:
+    if not isinstance(loop, SEGSSamplerLoopState):
+        raise TypeError("SEGS Loop Pass requires loop state from SEGS Loop Start.")
+    if not isinstance(segs, (list, tuple)) or len(segs) != 2 or not isinstance(segs[1], (list, tuple)):
+        raise TypeError("SEGS Loop Pass expects SEGS shaped as ((height, width), entries).")
+    carried_image = loop.current_image if image is None else image
+    if not isinstance(carried_image, torch.Tensor) or carried_image.ndim != 4 or carried_image.shape[0] != 1:
+        shape = tuple(carried_image.shape) if isinstance(carried_image, torch.Tensor) else type(carried_image).__name__
+        raise ValueError(f"SEGS Loop Pass requires one IMAGE in NHWC batch form, got {shape}.")
+    if tuple(carried_image.shape[1:3]) != tuple(int(value) for value in segs[0]):
+        raise ValueError(
+            f"SEGS Loop Pass IMAGE size {tuple(carried_image.shape[1:3])} must match "
+            f"the SEGS source size {tuple(segs[0])}."
+        )
+    return carried_image, segs
+
+
+class SEGSLoopPass(io.ComfyNode):
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        terminations = io.Autogrow.TemplatePrefix(
+            io.AnyType.Input(
+                "termination",
+                tooltip="Connect a preview or side-effect output that must execute on every SEG iteration. Its value is not returned.",
+            ),
+            prefix="termination",
+            min=0,
+            max=50,
+        )
+        return io.Schema(
+            node_id="UtilitySuiteSEGSLoopPass",
+            display_name="SEGS Loop Pass",
+            category="Utility Suite/SEGS",
+            loop_boundary="end",
+            inputs=[
+                LOOP_STATE.Input("loop"),
+                SEGS.Input("segs"),
+                io.Image.Input(
+                    "image",
+                    optional=True,
+                    tooltip="Updated sequential canvas. When disconnected, the image already carried by the loop is preserved.",
+                ),
+                io.Autogrow.Input(
+                    "terminations",
+                    template=terminations,
+                    optional=True,
+                    tooltip="Connect outputs that must execute on every SEG iteration. Their values are not returned.",
+                ),
+            ],
+            outputs=[io.Image.Output("image"), SEGS.Output("segs")],
+            hidden=[_execution_list_hidden(), io.Hidden.unique_id],
+        )
+
+    @classmethod
+    def execute(cls, loop=None, segs=None, image=None, **kwargs):
+        execution_list = cls.hidden.execution_list
+        unique_id = cls.hidden.unique_id
+        result = execution_list.get_external_block_result(unique_id)
+        if result is not None:
+            return io.NodeOutput(result[0][0], result[1][0])
+        return io.NodeOutput(*_pass_loop_state(loop, segs, image))
+
 class SEGSSamplerLoopInitialize(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
@@ -575,6 +638,7 @@ class SEGSSamplerLoopResult(io.ComfyNode):
 LOOP_NODE_CLASSES = [
     SEGSSamplerLoopStart,
     SEGSSamplerLoopEnd,
+    SEGSLoopPass,
     SEGSSamplerLoopInitialize,
     SEGSSamplerLoopIteration,
     SEGSSamplerLoopPackState,
@@ -583,4 +647,4 @@ LOOP_NODE_CLASSES = [
     SEGSSamplerLoopResult,
 ]
 
-__all__ = ["LOOP_NODE_CLASSES", "SEGSSamplerLoopEnd", "SEGSSamplerLoopStart"]
+__all__ = ["LOOP_NODE_CLASSES", "SEGSLoopPass", "SEGSSamplerLoopEnd", "SEGSSamplerLoopStart"]
