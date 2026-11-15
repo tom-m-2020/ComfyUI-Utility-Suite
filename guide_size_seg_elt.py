@@ -33,6 +33,7 @@ def _mask_tensor(value: Any) -> torch.Tensor:
 
 def guide_size_seg_elt(
     seg_elt: Any,
+    vae: Any,
     guide_size: int,
     guide_size_for: str,
     scale_to_guide_size: str,
@@ -64,6 +65,13 @@ def guide_size_seg_elt(
     reference_width = int(region[2]) - int(region[0])
     reference_height = int(region[3]) - int(region[1])
 
+    compression = vae.spacial_compression_encode()
+    if isinstance(compression, bool) or not isinstance(compression, int) or compression <= 0:
+        raise ValueError(
+            "Guide Size (SEG_ELT) requires a VAE with a positive integer "
+            f"encode compression ratio, got {compression!r}."
+        )
+
     width, height = processing_size(
         image_width,
         image_height,
@@ -72,7 +80,7 @@ def guide_size_seg_elt(
         guide_size,
         scale_to_guide_size,
         max_size,
-        8,
+        compression,
     )
     reference_area = reference_width * reference_height
     guide_area = guide_size * guide_size
@@ -104,6 +112,7 @@ class GuideSizeSEGELT(io.ComfyNode):
             description="Resizes a SEG element's image and mask to its guide-size sampling resolution.",
             inputs=[
                 SEG_ELT.Input("seg_elt"),
+                io.Vae.Input("vae"),
                 io.Image.Input("image", optional=True),
                 io.Mask.Input("mask", optional=True),
                 io.Int.Input(

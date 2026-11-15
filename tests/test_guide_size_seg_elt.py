@@ -24,6 +24,14 @@ SEG = namedtuple(
 )
 
 
+class FakeVAE:
+    def __init__(self, compression=8):
+        self.compression = compression
+
+    def spacial_compression_encode(self):
+        return self.compression
+
+
 def segment(image=None, mask=None, crop=(0, 0, 64, 32), bbox=(16, 8, 48, 24)):
     if image is None:
         image = torch.zeros((1, 32, 64, 3))
@@ -35,6 +43,7 @@ def segment(image=None, mask=None, crop=(0, 0, 64, 32), bbox=(16, 8, 48, 24)):
 def run(seg, **overrides):
     values = {
         "seg_elt": seg,
+        "vae": FakeVAE(),
         "guide_size": 32,
         "guide_size_for": "crop_region",
         "scale_to_guide_size": "scale",
@@ -49,12 +58,24 @@ class GuideSizeSEGELTTests(unittest.TestCase):
         schema = MODULE.GuideSizeSEGELT.define_schema()
         self.assertEqual(schema.display_name, "Guide Size (SEG_ELT)")
         defaults = {item.id: getattr(item, "default", None) for item in schema.inputs}
+        vae_input = next(item for item in schema.inputs if item.id == "vae")
+        self.assertFalse(vae_input.optional)
         self.assertEqual(defaults["guide_size"], 512)
         self.assertEqual(defaults["guide_size_for"], "bbox")
         self.assertEqual(defaults["scale_to_guide_size"], "upscale")
         self.assertEqual(defaults["max_size"], 1024)
         nodes = asyncio.run(PACKAGE.UtilitySuiteExtension().get_node_list())
         self.assertIn(MODULE.GuideSizeSEGELT, nodes)
+
+    def test_uses_required_vae_encode_compression_ratio(self):
+        image, mask = run(segment(), vae=FakeVAE(16))
+        self.assertEqual(tuple(image.shape[1:3]), (16, 48))
+        self.assertEqual(tuple(mask.shape[-2:]), (16, 48))
+
+    def test_rejects_invalid_vae_encode_compression_ratio(self):
+        for compression in (True, 0, -1, 8.0):
+            with self.subTest(compression=compression), self.assertRaisesRegex(ValueError, "positive integer"):
+                run(segment(), vae=FakeVAE(compression))
 
     def test_crop_and_bbox_reference_geometry(self):
         seg = segment()
@@ -79,7 +100,7 @@ class GuideSizeSEGELTTests(unittest.TestCase):
 
     def test_none_returns_original_tensors_and_ignores_max_size(self):
         seg = segment()
-        image, mask = run(seg, scale_to_guide_size="none", max_size=8)
+        image, mask = run(seg, vae=FakeVAE(16), scale_to_guide_size="none", max_size=8)
         self.assertIs(image, seg.cropped_image)
         self.assertIs(mask, seg.cropped_mask)
 
