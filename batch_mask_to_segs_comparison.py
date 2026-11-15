@@ -38,7 +38,7 @@ def _mask_batch(mask: torch.Tensor, name: str) -> torch.Tensor:
         raise ValueError(
             f"{name} requires nonempty dimensions, got shape {tuple(mask.shape)}."
         )
-    return mask.detach().cpu().to(torch.float32)
+    return mask.detach().cpu().to(torch.float32).clamp(0.0, 1.0)
 
 
 def _normalize_axis(limit: int, start: int, size: float) -> tuple[int, int]:

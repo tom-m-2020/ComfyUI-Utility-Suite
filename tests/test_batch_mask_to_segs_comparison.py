@@ -156,6 +156,27 @@ class BatchMaskToSEGSWithComparisonTests(unittest.TestCase):
         self.assertEqual(bbox[0].cropped_mask[target_y, target_x], 1)
         self.assertAlmostEqual(float(preserved[0].cropped_mask.max()), 0.5)
 
+    def test_clamps_target_before_bounds_and_cropping(self):
+        mask = torch.zeros(1, 12, 14)
+        mask[0, 1:3, 2:4] = 1.5
+        mask[0, 10, 12] = -1.0
+
+        _, segments = run(mask, crop_factor=1.0)
+
+        self.assertEqual(segments[0].bbox, (2, 1, 4, 3))
+        self.assertEqual(segments[0].crop_region, [2, 1, 4, 3])
+        self.assertTrue(np.all(segments[0].cropped_mask == 1.0))
+
+    def test_clamps_comparison_base_before_bounds(self):
+        mask = torch.zeros(1, 20, 20)
+        mask[0, 9:11, 9:11] = 1.0
+        base = torch.zeros(1, 20, 20)
+        base[0, 2:10, 2:10] = -1.0
+
+        _, segments = run(mask, base, crop_factor=2.0)
+
+        self.assertEqual(segments[0].crop_region, [9, 9, 11, 11])
+
     def test_rejects_incompatible_spatial_dimensions(self):
         with self.assertRaisesRegex(ValueError, "share spatial dimensions"):
             run(torch.zeros(1, 20, 30), torch.zeros(1, 10, 15))
