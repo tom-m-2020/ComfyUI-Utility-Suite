@@ -81,6 +81,7 @@ from .segs_sampler_custom import SEGSSamplerCustom
 from .segs_sampler_loop import LOOP_NODE_CLASSES
 from .segs_sampler_unsample import SEGSSamplerUnsample
 from .segs_upscaler import SEGSUpscaler
+from .seed_generator import SeedGenerator
 from .set_default_mask_segs import SetDefaultMaskForSEGS
 from .tiling import ImageTileBatch, ImageUntileBatch
 from .update_seg_elt_bbox import UpdateSEGELTBBox
@@ -163,6 +164,7 @@ class UtilitySuiteExtension(ComfyExtension):
             SEGSSamplerCustom,
             SEGSSamplerUnsample,
             SEGSUpscaler,
+            SeedGenerator,
             SetDefaultMaskForSEGS,
             *LOOP_NODE_CLASSES,
             PipeSetAny,

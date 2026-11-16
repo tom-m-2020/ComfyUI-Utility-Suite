@@ -23,3 +23,9 @@ Widget defaults are `guide_size=512`, `guide_size_for=bbox`,
 through ComfyUI's native model-only LoRA loader. Use `+ Add LoRA` to search the
 configured LoRA folders, then enable, set the signed strength, reorder, or
 remove each row in the node.
+
+## Seed Generator
+
+`Seed Generator` outputs either a fixed seed or a fresh server-generated seed
+for every queue. Its compact controls can enable per-queue randomization,
+create a new fixed random seed, or reuse the last seed reported by execution.
