@@ -59,6 +59,7 @@ from .pixelwise_segs import (
     PixelwiseMinSEGSAndSEGS,
 )
 from .preview_segs_regions import PreviewSEGSRegions
+from .power_lora_loader import PowerLoraLoader
 from .remove_redundant_tile_segs import RemoveRedundantTileSEGS
 from .reorder_batch_mask import ReorderBatchMask
 from .reorder_segs import ReorderSEGS
@@ -147,6 +148,7 @@ class UtilitySuiteExtension(ComfyExtension):
             SEGSInsertByIndex,
             GuideSizeSEGELT,
             PreviewSEGSRegions,
+            PowerLoraLoader,
             RemoveRedundantTileSEGS,
             RestoreTileSEGSGaps,
             RerouteOptional,
@@ -181,4 +183,7 @@ async def comfy_entrypoint() -> UtilitySuiteExtension:
     return UtilitySuiteExtension()
 
 
-__all__ = ["UtilitySuiteExtension", "comfy_entrypoint"]
+WEB_DIRECTORY = "./web"
+
+
+__all__ = ["UtilitySuiteExtension", "WEB_DIRECTORY", "comfy_entrypoint"]

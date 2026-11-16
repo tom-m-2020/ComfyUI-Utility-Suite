@@ -16,3 +16,10 @@ Widget defaults are `guide_size=512`, `guide_size_for=bbox`,
 `scale_to_guide_size=upscale`, `max_size=1024`, `force_inpaint=enabled`,
 `feather=5`, `noise_mask=enabled`, `noise_mask_feather=20`,
 `tiled_encode=disabled`, `tiled_decode=disabled`, and `operation=sequential`.
+
+## Power LoRA Loader
+
+`Power LoRA Loader` applies an ordered set of enabled LoRAs to a `MODEL`
+through ComfyUI's native model-only LoRA loader. Use `+ Add LoRA` to search the
+configured LoRA folders, then enable, set the signed strength, reorder, or
+remove each row in the node.
