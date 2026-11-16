@@ -130,6 +130,7 @@ class ImageBatchListTests(unittest.TestCase):
             "UtilitySuiteGuideSizeSEGELT",
             "UtilitySuitePreviewSEGSRegions",
             "UtilitySuitePowerLoraLoader",
+            "UtilitySuiteReferenceCollage",
             "UtilitySuiteRemoveRedundantTileSEGS",
             "UtilitySuiteReplaceSEGELTBBoxWithMASK",
             "UtilitySuiteRestoreTileSEGSGaps",

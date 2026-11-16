@@ -41,3 +41,12 @@ multiple. Width, height, and percent may be zero; percent has no maximum.
 `Image And Mask Crop By Mask` crops an optional image, an optional target mask,
 or both to the per-item bounds of a required crop mask. At least one optional
 target must be connected, and all connected tensors must share one canvas.
+
+## Reference Collage
+
+`Reference Collage` accepts auto-growing singleton `image0`, `image1`, ...
+sockets and creates either a content-sized grid or deterministic weighted
+guillotine mosaic. Images preserve aspect ratio, socket order, dtype, device,
+and channels. `none` preserves source dimensions; `auto` may grow images to
+reconcile row or mosaic cross-axis dimensions. Gaps are internal only.
+`columns` applies to grid mode; mosaic uses its deterministic recursive splits.

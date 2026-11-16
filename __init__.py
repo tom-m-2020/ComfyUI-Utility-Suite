@@ -62,6 +62,7 @@ from .pixelwise_segs import (
 )
 from .preview_segs_regions import PreviewSEGSRegions
 from .power_lora_loader import PowerLoraLoader
+from .reference_collage import ReferenceCollage
 from .remove_redundant_tile_segs import RemoveRedundantTileSEGS
 from .reorder_batch_mask import ReorderBatchMask
 from .reorder_segs import ReorderSEGS
@@ -154,6 +155,7 @@ class UtilitySuiteExtension(ComfyExtension):
             GuideSizeSEGELT,
             PreviewSEGSRegions,
             PowerLoraLoader,
+            ReferenceCollage,
             RemoveRedundantTileSEGS,
             RestoreTileSEGSGaps,
             RerouteOptional,
