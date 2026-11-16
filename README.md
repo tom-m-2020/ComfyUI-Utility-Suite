@@ -48,5 +48,6 @@ target must be connected, and all connected tensors must share one canvas.
 sockets and creates either a content-sized grid or deterministic weighted
 guillotine mosaic. Images preserve aspect ratio, socket order, dtype, device,
 and channels. `none` preserves source dimensions; `auto` may grow images to
-reconcile row or mosaic cross-axis dimensions. Gaps are internal only.
+reconcile row or mosaic cross-axis dimensions. Gaps are internal by default;
+`frame_gap` also applies the selected gap to all four outer canvas edges.
 `columns` applies to grid mode; mosaic uses its deterministic recursive splits.

@@ -31,8 +31,9 @@ class ReferenceCollageTests(unittest.TestCase):
         self.assertEqual(schema.display_name, "Reference Collage")
         self.assertEqual(
             [item.id for item in schema.inputs],
-            ["images", "layout", "columns", "weights", "gap", "resize_mode", "alignment", "background"],
+            ["images", "layout", "columns", "weights", "gap", "resize_mode", "alignment", "background", "frame_gap"],
         )
+        self.assertFalse(schema.inputs[-1].default)
         self.assertEqual(schema.inputs[0].template.prefix, "image")
         self.assertEqual(schema.inputs[0].template.min, 1)
         self.assertEqual([item.id for item in schema.outputs], ["collage"])
@@ -114,6 +115,31 @@ class ReferenceCollageTests(unittest.TestCase):
         self.assertTrue(torch.equal(result1, result2))
         self.assertEqual(tuple(result1.shape), (1, 2, 4, 3))
         self.assertTrue(torch.equal(result1[0, 1, 3], torch.tensor([0.0, 0.0, 1.0])))
+
+    def test_frame_gap_expands_canvas_and_translates_grid_and_mosaic(self):
+        sources = (source(0, 20, 10), source(1, 10, 20), source(2, 8, 8))
+        for layout_name in ("grid", "mosaic"):
+            with self.subTest(layout=layout_name):
+                without_frame = MODULE.calculate_layout(sources, layout_name, 2, 3, "none", "center")
+                with_frame = MODULE.calculate_layout(sources, layout_name, 2, 3, "none", "center", True)
+                self.assertEqual((with_frame.width, with_frame.height), (without_frame.width + 6, without_frame.height + 6))
+                for original, framed in zip(without_frame.placements, with_frame.placements):
+                    self.assertEqual((framed.x, framed.y), (original.x + 3, original.y + 3))
+                    self.assertEqual((framed.cell_x, framed.cell_y), (original.cell_x + 3, original.cell_y + 3))
+                    self.assertEqual((framed.width, framed.height), (original.width, original.height))
+                    self.assertEqual((framed.cell_width, framed.cell_height), (original.cell_width, original.cell_height))
+
+    def test_frame_gap_renders_background_on_every_edge(self):
+        image = torch.ones(1, 2, 3, 3)
+        result, layout = MODULE.reference_collage(
+            {"image0": image}, "grid", 1, "1", 2, "none", "start", "#000000", True
+        )
+        self.assertEqual((layout.width, layout.height), (7, 6))
+        self.assertTrue(torch.equal(result[:, :2], torch.zeros(1, 2, 7, 3)))
+        self.assertTrue(torch.equal(result[:, -2:], torch.zeros(1, 2, 7, 3)))
+        self.assertTrue(torch.equal(result[:, 2:4, :2], torch.zeros(1, 2, 2, 3)))
+        self.assertTrue(torch.equal(result[:, 2:4, -2:], torch.zeros(1, 2, 2, 3)))
+        self.assertTrue(torch.equal(result[:, 2:4, 2:5], image))
 
 
 if __name__ == "__main__":

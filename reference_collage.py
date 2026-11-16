@@ -305,13 +305,39 @@ def calculate_mosaic_layout(
 
 
 def calculate_layout(
-    sources: tuple[CollageSource, ...], layout: str, columns: int, gap: int, resize_mode: str, alignment: str
+    sources: tuple[CollageSource, ...],
+    layout: str,
+    columns: int,
+    gap: int,
+    resize_mode: str,
+    alignment: str,
+    frame_gap: bool = False,
 ) -> CollageLayout:
     if layout == "grid":
-        return calculate_grid_layout(sources, columns, gap, resize_mode, alignment)
-    if layout == "mosaic":
-        return calculate_mosaic_layout(sources, gap, resize_mode, alignment)
-    raise ValueError(f"Reference Collage layout must be grid or mosaic, got {layout!r}.")
+        calculated = calculate_grid_layout(sources, columns, gap, resize_mode, alignment)
+    elif layout == "mosaic":
+        calculated = calculate_mosaic_layout(sources, gap, resize_mode, alignment)
+    else:
+        raise ValueError(f"Reference Collage layout must be grid or mosaic, got {layout!r}.")
+    if not frame_gap or gap == 0:
+        return calculated
+    placements = tuple(
+        CollagePlacement(
+            item.index,
+            item.source_width,
+            item.source_height,
+            item.cell_x + gap,
+            item.cell_y + gap,
+            item.cell_width,
+            item.cell_height,
+            item.x + gap,
+            item.y + gap,
+            item.width,
+            item.height,
+        )
+        for item in calculated.placements
+    )
+    return CollageLayout(calculated.width + gap * 2, calculated.height + gap * 2, placements)
 
 
 def _background_rgb(background: str) -> tuple[float, float, float]:
@@ -353,9 +379,10 @@ def reference_collage(
     resize_mode: str,
     alignment: str,
     background: str,
+    frame_gap: bool = False,
 ) -> tuple[torch.Tensor, CollageLayout]:
     ordered, sources = collect_images(images, weights)
-    calculated = calculate_layout(sources, layout, columns, gap, resize_mode, alignment)
+    calculated = calculate_layout(sources, layout, columns, gap, resize_mode, alignment, frame_gap)
     return render_collage(ordered, calculated, background), calculated
 
 
@@ -377,6 +404,7 @@ class ReferenceCollage(io.ComfyNode):
                 io.Combo.Input("resize_mode", options=["none", "auto"], default="none"),
                 io.Combo.Input("alignment", options=["start", "center", "end"], default="start"),
                 io.Color.Input("background", default="#000000"),
+                io.Boolean.Input("frame_gap", default=False),
             ],
             outputs=[io.Image.Output("collage")],
         )
@@ -392,8 +420,11 @@ class ReferenceCollage(io.ComfyNode):
         resize_mode: str,
         alignment: str,
         background: str,
+        frame_gap: bool,
     ) -> io.NodeOutput:
-        collage, _ = reference_collage(images, layout, columns, weights, gap, resize_mode, alignment, background)
+        collage, _ = reference_collage(
+            images, layout, columns, weights, gap, resize_mode, alignment, background, frame_gap
+        )
         return io.NodeOutput(collage)
 
 
