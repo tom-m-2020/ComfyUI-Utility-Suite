@@ -35,3 +35,9 @@ create a new fixed random seed, or reuse the last seed reported by execution.
 `Dimensions Percentage to Pixels` returns the original dimensions and new
 dimensions scaled by an integer percentage, rounded to the nearest requested
 multiple. Width, height, and percent may be zero; percent has no maximum.
+
+## Image And Mask Crop By Mask
+
+`Image And Mask Crop By Mask` crops an optional image, an optional target mask,
+or both to the per-item bounds of a required crop mask. At least one optional
+target must be connected, and all connected tensors must share one canvas.

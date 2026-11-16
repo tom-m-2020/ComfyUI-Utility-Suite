@@ -31,6 +31,7 @@ from .fit_dimensions_within_bounds import FitDimensionsWithinBounds
 from .get_coordinate_by_percentage import GetCoordinateByPercentage
 from .guide_size_seg_elt import GuideSizeSEGELT
 from .image_batch import ImageBatchToImageList, ImageListToImageBatch
+from .image_mask_crop_by_mask import ImageAndMaskCropByMask
 from .image_upscale_downscale import UpscaleAndDownscale
 from .input_kind import ListBatchInspector
 from .invert_mask_segs import InvertMaskSEGS
@@ -112,6 +113,7 @@ class UtilitySuiteExtension(ComfyExtension):
             FeatherGroupOfMasksSEGS,
             ImageListToImageBatch,
             ImageBatchToImageList,
+            ImageAndMaskCropByMask,
             UpscaleAndDownscale,
             ListBatchInspector,
             InvertMaskSEGS,
