@@ -29,3 +29,9 @@ remove each row in the node.
 `Seed Generator` outputs either a fixed seed or a fresh server-generated seed
 for every queue. Its compact controls can enable per-queue randomization,
 create a new fixed random seed, or reuse the last seed reported by execution.
+
+## Dimensions Percentage to Pixels
+
+`Dimensions Percentage to Pixels` returns the original dimensions and new
+dimensions scaled by an integer percentage, rounded to the nearest requested
+multiple. Width, height, and percent may be zero; percent has no maximum.

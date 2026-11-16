@@ -87,6 +87,7 @@ class ImageBatchListTests(unittest.TestCase):
                 "UtilitySuiteCombineTilesSEGS",
                 "UtilitySuiteCompositeForOutpainting",
                 "UtilitySuiteCrossfadeMaskOverlapSEGS",
+                "UtilitySuiteDimensionsPercentageToPixels",
                 "UtilitySuiteEmptyLatentFromVAE",
             "UtilitySuiteEachMaskToMaskBatch",
                 "UtilitySuiteFeatherMaskFromBoundary",

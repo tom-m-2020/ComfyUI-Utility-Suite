@@ -20,6 +20,7 @@ from .combine_masks_segs import CombineMasksSEGSAndMASK, CombineMasksSEGSAndSEGS
 from .combine_tiles_segs import CombineTilesSEGS
 from .composite_for_outpainting import CompositeForOutpainting
 from .crossfade_mask_overlap_segs import CrossfadeMaskOverlapSEGS
+from .dimensions_percentage_to_pixels import DimensionsPercentageToPixels
 from .each_mask_to_mask_batch import EachMaskToMaskBatch
 from .empty_latent_vae import EmptyLatentFromVAE
 from .feather_group_masks_segs import FeatherGroupOfMasksSEGS
@@ -103,6 +104,7 @@ class UtilitySuiteExtension(ComfyExtension):
             CombineTilesSEGS,
             CompositeForOutpainting,
             CrossfadeMaskOverlapSEGS,
+            DimensionsPercentageToPixels,
             EmptyLatentFromVAE,
             EachMaskToMaskBatch,
             FeatherMaskFromBoundary,
