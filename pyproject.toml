@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-utility-suite"
 description = "Inpainting/outpainting, tiling and ref editing logics. Also an unofficial extension of Impact Pack."
-version = "1.10.0"
+version = "1.10.1"
 license = {file = "LICENSE"}
 
 # classifiers = [
