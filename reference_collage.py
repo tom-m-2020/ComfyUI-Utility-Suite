@@ -134,6 +134,59 @@ def collect_images(images: dict[str, torch.Tensor], weights: str) -> tuple[list[
     return ordered, sources
 
 
+def _scaled_dimensions(width: int, height: int, scale: float) -> tuple[int, int]:
+    if width >= height:
+        scaled_width = _round_positive(width * scale)
+        return scaled_width, _round_positive(height * scaled_width / width)
+    scaled_height = _round_positive(height * scale)
+    return _round_positive(width * scaled_height / height), scaled_height
+
+
+def normalize_sources(
+    sources: tuple[CollageSource, ...], mode: str, size: int, allow_upscale: bool
+) -> tuple[CollageSource, ...]:
+    if mode not in {"none", "longest_side", "shortest_side", "area"}:
+        raise ValueError(
+            "Reference Collage normalize_mode must be none, longest_side, shortest_side, or area, "
+            f"got {mode!r}."
+        )
+    if size < 1:
+        raise ValueError("Reference Collage normalize_size must be at least 1.")
+    if mode == "none":
+        return sources
+    normalized = []
+    for source in sources:
+        if mode == "longest_side":
+            scale = size / max(source.width, source.height)
+        elif mode == "shortest_side":
+            scale = size / min(source.width, source.height)
+        else:
+            scale = size / math.sqrt(source.width * source.height)
+        if not allow_upscale:
+            scale = min(scale, 1.0)
+        width, height = _scaled_dimensions(source.width, source.height, scale)
+        normalized.append(CollageSource(source.index, width, height, source.weight))
+    return tuple(normalized)
+
+
+def apply_weight_sizing(
+    sources: tuple[CollageSource, ...], weight_mode: str
+) -> tuple[CollageSource, ...]:
+    if weight_mode not in {"area", "linear"}:
+        raise ValueError(f"Reference Collage weight_mode must be area or linear, got {weight_mode!r}.")
+    reference_area = math.exp(sum(math.log(source.width * source.height) for source in sources) / len(sources))
+    reference_weight = math.exp(sum(math.log(source.weight) for source in sources) / len(sources))
+    weighted = []
+    for source in sources:
+        relative_weight = source.weight / reference_weight
+        target_area = reference_area * (relative_weight if weight_mode == "area" else relative_weight**2)
+        aspect_ratio = source.width / source.height
+        width = _round_positive(math.sqrt(target_area * aspect_ratio))
+        height = _round_positive(width / aspect_ratio)
+        weighted.append(CollageSource(source.index, width, height, source.weight))
+    return tuple(weighted)
+
+
 def _grid_sizes(row: tuple[CollageSource, ...], resize_mode: str) -> tuple[tuple[int, int], ...]:
     if resize_mode == "none":
         return tuple((source.width, source.height) for source in row)
@@ -312,11 +365,15 @@ def calculate_layout(
     resize_mode: str,
     alignment: str,
     frame_gap: bool = False,
+    sizes_are_final: bool = False,
 ) -> CollageLayout:
+    if resize_mode not in {"none", "auto"}:
+        raise ValueError(f"Reference Collage resize_mode must be none or auto, got {resize_mode!r}.")
+    effective_resize_mode = "none" if sizes_are_final else resize_mode
     if layout == "grid":
-        calculated = calculate_grid_layout(sources, columns, gap, resize_mode, alignment)
+        calculated = calculate_grid_layout(sources, columns, gap, effective_resize_mode, alignment)
     elif layout == "mosaic":
-        calculated = calculate_mosaic_layout(sources, gap, resize_mode, alignment)
+        calculated = calculate_mosaic_layout(sources, gap, effective_resize_mode, alignment)
     else:
         raise ValueError(f"Reference Collage layout must be grid or mosaic, got {layout!r}.")
     if not frame_gap or gap == 0:
@@ -380,9 +437,17 @@ def reference_collage(
     alignment: str,
     background: str,
     frame_gap: bool = False,
+    normalize_mode: str = "none",
+    normalize_size: int = 512,
+    allow_upscale: bool = True,
+    weight_mode: str = "area",
 ) -> tuple[torch.Tensor, CollageLayout]:
     ordered, sources = collect_images(images, weights)
-    calculated = calculate_layout(sources, layout, columns, gap, resize_mode, alignment, frame_gap)
+    normalized = normalize_sources(sources, normalize_mode, normalize_size, allow_upscale)
+    normalized = apply_weight_sizing(normalized, weight_mode)
+    calculated = calculate_layout(
+        normalized, layout, columns, gap, resize_mode, alignment, frame_gap, True
+    )
     return render_collage(ordered, calculated, background), calculated
 
 
@@ -405,6 +470,12 @@ class ReferenceCollage(io.ComfyNode):
                 io.Combo.Input("alignment", options=["start", "center", "end"], default="start"),
                 io.Color.Input("background", default="#000000"),
                 io.Boolean.Input("frame_gap", default=False),
+                io.Combo.Input(
+                    "normalize_mode", options=["none", "longest_side", "shortest_side", "area"], default="none"
+                ),
+                io.Int.Input("normalize_size", default=512, min=1, max=32768, step=1),
+                io.Boolean.Input("allow_upscale", default=True),
+                io.Combo.Input("weight_mode", options=["area", "linear"], default="area"),
             ],
             outputs=[io.Image.Output("collage")],
         )
@@ -421,9 +492,25 @@ class ReferenceCollage(io.ComfyNode):
         alignment: str,
         background: str,
         frame_gap: bool,
+        normalize_mode: str,
+        normalize_size: int,
+        allow_upscale: bool,
+        weight_mode: str,
     ) -> io.NodeOutput:
         collage, _ = reference_collage(
-            images, layout, columns, weights, gap, resize_mode, alignment, background, frame_gap
+            images,
+            layout,
+            columns,
+            weights,
+            gap,
+            resize_mode,
+            alignment,
+            background,
+            frame_gap,
+            normalize_mode,
+            normalize_size,
+            allow_upscale,
+            weight_mode,
         )
         return io.NodeOutput(collage)
 
@@ -433,10 +520,12 @@ __all__ = [
     "CollagePlacement",
     "CollageSource",
     "ReferenceCollage",
+    "apply_weight_sizing",
     "calculate_grid_layout",
     "calculate_layout",
     "calculate_mosaic_layout",
     "collect_images",
+    "normalize_sources",
     "parse_weights",
     "reference_collage",
     "render_collage",

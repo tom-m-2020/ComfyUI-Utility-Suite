@@ -31,9 +31,27 @@ class ReferenceCollageTests(unittest.TestCase):
         self.assertEqual(schema.display_name, "Reference Collage")
         self.assertEqual(
             [item.id for item in schema.inputs],
-            ["images", "layout", "columns", "weights", "gap", "resize_mode", "alignment", "background", "frame_gap"],
+            [
+                "images",
+                "layout",
+                "columns",
+                "weights",
+                "gap",
+                "resize_mode",
+                "alignment",
+                "background",
+                "frame_gap",
+                "normalize_mode",
+                "normalize_size",
+                "allow_upscale",
+                "weight_mode",
+            ],
         )
-        self.assertFalse(schema.inputs[-1].default)
+        self.assertFalse(schema.inputs[8].default)
+        self.assertEqual(schema.inputs[9].default, "none")
+        self.assertEqual(schema.inputs[10].default, 512)
+        self.assertTrue(schema.inputs[11].default)
+        self.assertEqual(schema.inputs[12].default, "area")
         self.assertEqual(schema.inputs[0].template.prefix, "image")
         self.assertEqual(schema.inputs[0].template.min, 1)
         self.assertEqual([item.id for item in schema.outputs], ["collage"])
@@ -106,15 +124,15 @@ class ReferenceCollageTests(unittest.TestCase):
         green = torch.zeros(1, 1, 1, 3)
         green[..., 1] = 1
         result1, layout1 = MODULE.reference_collage(
-            {"image0": red, "image1": green}, "grid", 2, "1,1", 1, "none", "start", "#0000ff"
+            {"image0": red, "image1": green}, "grid", 2, "1,1", 1, "none", "start", "#0000ff", False, "none"
         )
         result2, layout2 = MODULE.reference_collage(
-            {"image0": red, "image1": green}, "grid", 2, "1,1", 1, "none", "start", "#0000ff"
+            {"image0": red, "image1": green}, "grid", 2, "1,1", 1, "none", "start", "#0000ff", False, "none"
         )
         self.assertEqual(layout1, layout2)
         self.assertTrue(torch.equal(result1, result2))
-        self.assertEqual(tuple(result1.shape), (1, 2, 4, 3))
-        self.assertTrue(torch.equal(result1[0, 1, 3], torch.tensor([0.0, 0.0, 1.0])))
+        self.assertEqual(tuple(result1.shape), (1, 1, 3, 3))
+        self.assertTrue(torch.equal(result1[0, 0, 1], torch.tensor([0.0, 0.0, 1.0])))
 
     def test_frame_gap_expands_canvas_and_translates_grid_and_mosaic(self):
         sources = (source(0, 20, 10), source(1, 10, 20), source(2, 8, 8))
@@ -132,7 +150,7 @@ class ReferenceCollageTests(unittest.TestCase):
     def test_frame_gap_renders_background_on_every_edge(self):
         image = torch.ones(1, 2, 3, 3)
         result, layout = MODULE.reference_collage(
-            {"image0": image}, "grid", 1, "1", 2, "none", "start", "#000000", True
+            {"image0": image}, "grid", 1, "1", 2, "none", "start", "#000000", True, "none"
         )
         self.assertEqual((layout.width, layout.height), (7, 6))
         self.assertTrue(torch.equal(result[:, :2], torch.zeros(1, 2, 7, 3)))
@@ -140,6 +158,92 @@ class ReferenceCollageTests(unittest.TestCase):
         self.assertTrue(torch.equal(result[:, 2:4, :2], torch.zeros(1, 2, 2, 3)))
         self.assertTrue(torch.equal(result[:, 2:4, -2:], torch.zeros(1, 2, 2, 3)))
         self.assertTrue(torch.equal(result[:, 2:4, 2:5], image))
+
+    def test_normalization_modes_preserve_aspect_ratio(self):
+        sources = (source(0, 1000, 500),)
+        self.assertEqual(MODULE.normalize_sources(sources, "none", 512, True), sources)
+        self.assertEqual((MODULE.normalize_sources(sources, "longest_side", 512, True)[0].width,
+                          MODULE.normalize_sources(sources, "longest_side", 512, True)[0].height), (512, 256))
+        self.assertEqual((MODULE.normalize_sources(sources, "shortest_side", 512, True)[0].width,
+                          MODULE.normalize_sources(sources, "shortest_side", 512, True)[0].height), (1024, 512))
+        area = MODULE.normalize_sources(sources, "area", 512, True)[0]
+        self.assertAlmostEqual(area.width * area.height, 512 * 512, delta=512)
+        self.assertEqual(area.width, area.height * 2)
+
+    def test_normalization_allow_upscale(self):
+        sources = (source(0, 100, 50),)
+        allowed = MODULE.normalize_sources(sources, "longest_side", 512, True)[0]
+        blocked = MODULE.normalize_sources(sources, "longest_side", 512, False)[0]
+        self.assertEqual((allowed.width, allowed.height), (512, 256))
+        self.assertEqual((blocked.width, blocked.height), (100, 50))
+
+    def test_normalized_resolution_does_not_change_allocated_geometry(self):
+        low = (source(0, 512, 512, 2), source(1, 512, 512), source(2, 512, 512))
+        high = (source(0, 2048, 2048, 2), source(1, 512, 512), source(2, 512, 512))
+        low_weighted = MODULE.apply_weight_sizing(MODULE.normalize_sources(low, "longest_side", 512, True), "area")
+        high_weighted = MODULE.apply_weight_sizing(MODULE.normalize_sources(high, "longest_side", 512, True), "area")
+        self.assertEqual(low_weighted, high_weighted)
+        self.assertEqual(
+            MODULE.calculate_layout(low_weighted, "grid", 3, 0, "auto", "start", False, True),
+            MODULE.calculate_layout(high_weighted, "grid", 3, 0, "auto", "start", False, True),
+        )
+
+    def test_area_weights_control_visible_area_across_aspect_ratios(self):
+        normalized = MODULE.normalize_sources(
+            (source(0, 800, 400, 2), source(1, 400, 800), source(2, 500, 500)),
+            "longest_side",
+            512,
+            True,
+        )
+        weighted = MODULE.apply_weight_sizing(normalized, "area")
+        areas = [item.width * item.height for item in weighted]
+        self.assertAlmostEqual(areas[0] / areas[1], 2.0, delta=0.02)
+        self.assertAlmostEqual(areas[0] / areas[2], 2.0, delta=0.02)
+        self.assertAlmostEqual(areas[1] / areas[2], 1.0, delta=0.02)
+
+    def test_equal_weights_control_visible_area_across_aspect_ratios(self):
+        normalized = MODULE.normalize_sources(
+            (source(0, 1200, 300), source(1, 300, 1200), source(2, 640, 640)), "longest_side", 512, True
+        )
+        weighted = MODULE.apply_weight_sizing(normalized, "area")
+        areas = [item.width * item.height for item in weighted]
+        self.assertLessEqual(max(areas) / min(areas), 1.01)
+
+    def test_linear_weights_control_linear_scale(self):
+        normalized = MODULE.normalize_sources(
+            (source(0, 800, 400, 2), source(1, 400, 800), source(2, 500, 500)), "area", 512, True
+        )
+        weighted = MODULE.apply_weight_sizing(normalized, "linear")
+        areas = [item.width * item.height for item in weighted]
+        self.assertAlmostEqual(areas[0] / areas[1], 4.0, delta=0.04)
+        self.assertAlmostEqual(areas[0] / areas[2], 4.0, delta=0.04)
+
+    def test_normalized_layout_preserves_weighted_sizes_in_all_modes(self):
+        normalized = MODULE.normalize_sources(
+            (source(0, 300, 600, 2), source(1, 900, 300), source(2, 400, 400)), "shortest_side", 256, True
+        )
+        weighted = MODULE.apply_weight_sizing(normalized, "area")
+        expected = [(item.width, item.height) for item in weighted]
+        for layout_name in ("grid", "mosaic"):
+            for resize_mode in ("none", "auto"):
+                with self.subTest(layout=layout_name, resize=resize_mode):
+                    layout = MODULE.calculate_layout(
+                        weighted, layout_name, 2, 7, resize_mode, "center", False, True
+                    )
+                    self.assertEqual([(item.width, item.height) for item in layout.placements], expected)
+
+    def test_none_normalization_preserves_baseline_before_weight_sizing(self):
+        images = {
+            "image0": torch.zeros(1, 50, 100, 3),
+            "image2": torch.zeros(1, 80, 40, 3),
+        }
+        _, layout = MODULE.reference_collage(
+            images, "grid", 2, "1,4", 0, "auto", "start", "#000000", False, "none", 512, True, "area"
+        )
+        baseline = (source(0, 100, 50, 1), source(2, 40, 80, 4))
+        self.assertEqual(MODULE.normalize_sources(baseline, "none", 512, True), baseline)
+        areas = [item.width * item.height for item in layout.placements]
+        self.assertAlmostEqual(areas[1] / areas[0], 4.0, delta=0.07)
 
 
 if __name__ == "__main__":

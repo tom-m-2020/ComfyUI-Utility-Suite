@@ -47,7 +47,19 @@ target must be connected, and all connected tensors must share one canvas.
 `Reference Collage` accepts auto-growing singleton `image0`, `image1`, ...
 sockets and creates either a content-sized grid or deterministic weighted
 guillotine mosaic. Images preserve aspect ratio, socket order, dtype, device,
-and channels. `none` preserves source dimensions; `auto` may grow images to
-reconcile row or mosaic cross-axis dimensions. Gaps are internal by default;
-`frame_gap` also applies the selected gap to all four outer canvas edges.
-`columns` applies to grid mode; mosaic uses its deterministic recursive splits.
+and channels. Normalization can retain source dimensions or establish a common
+longest side, shortest side, or approximate pixel area before weighted sizing.
+`area` weights target displayed-area ratios directly; `linear` weights target
+linear scale ratios, so their displayed areas vary with the square of the
+weights. A geometric-mean reference keeps weights relative rather than making
+equal non-unit weights enlarge every image. Integer dimensions can introduce
+small ratio errors.
+
+Normalized and weighted dimensions are authoritative layout targets. Both
+`resize_mode` values remain accepted, but no second per-image auto-resize is
+applied after weighted sizing because that would invalidate the requested area
+ratios. The original low-level `none`/`auto` solver behavior remains available
+to direct callers. Tensors are resized only once, during final compositing.
+Gaps are internal by default; `frame_gap` also applies the selected gap to all
+four outer canvas edges. `columns` applies to grid mode; mosaic uses its
+deterministic recursive splits.
