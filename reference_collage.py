@@ -443,7 +443,8 @@ def reference_collage(
     weight_mode: str = "area",
 ) -> tuple[torch.Tensor, CollageLayout]:
     ordered, sources = collect_images(images, weights)
-    normalized = normalize_sources(sources, normalize_mode, normalize_size, allow_upscale)
+    effective_normalize_mode = normalize_mode if resize_mode == "auto" else "none"
+    normalized = normalize_sources(sources, effective_normalize_mode, normalize_size, allow_upscale)
     normalized = apply_weight_sizing(normalized, weight_mode)
     calculated = calculate_layout(
         normalized, layout, columns, gap, resize_mode, alignment, frame_gap, True

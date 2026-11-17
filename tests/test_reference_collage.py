@@ -245,6 +245,93 @@ class ReferenceCollageTests(unittest.TestCase):
         areas = [item.width * item.height for item in layout.placements]
         self.assertAlmostEqual(areas[1] / areas[0], 4.0, delta=0.07)
 
+    def test_resize_none_bypasses_every_normalization_setting(self):
+        images = {
+            "image0": torch.zeros(1, 30, 90, 3),
+            "image1": torch.zeros(1, 80, 40, 3),
+            "image2": torch.zeros(1, 50, 50, 3),
+        }
+        _, expected = MODULE.reference_collage(
+            images, "grid", 3, "2,1,1", 3, "none", "center", "#000000", False, "none", 64, True, "area"
+        )
+        for normalize_mode in ("none", "longest_side", "shortest_side", "area"):
+            for normalize_size, allow_upscale in ((16, False), (256, True)):
+                with self.subTest(mode=normalize_mode, size=normalize_size, upscale=allow_upscale):
+                    _, actual = MODULE.reference_collage(
+                        images,
+                        "grid",
+                        3,
+                        "2,1,1",
+                        3,
+                        "none",
+                        "center",
+                        "#000000",
+                        False,
+                        normalize_mode,
+                        normalize_size,
+                        allow_upscale,
+                        "area",
+                    )
+                    self.assertEqual(actual, expected)
+
+    def test_none_equals_auto_with_normalization_none(self):
+        images = {
+            "image0": torch.zeros(1, 30, 90, 3),
+            "image1": torch.zeros(1, 80, 40, 3),
+            "image2": torch.zeros(1, 50, 50, 3),
+        }
+        _, none_layout = MODULE.reference_collage(
+            images, "mosaic", 2, "2,1,1", 5, "none", "end", "#000000", True, "area", 32, False, "area"
+        )
+        _, auto_layout = MODULE.reference_collage(
+            images, "mosaic", 2, "2,1,1", 5, "auto", "end", "#000000", True, "none", 512, True, "area"
+        )
+        self.assertEqual(none_layout, auto_layout)
+
+    def test_weights_resize_images_in_both_resize_modes(self):
+        images = {
+            "image0": torch.zeros(1, 30, 90, 3),
+            "image1": torch.zeros(1, 80, 40, 3),
+            "image2": torch.zeros(1, 50, 50, 3),
+        }
+        for resize_mode in ("none", "auto"):
+            with self.subTest(resize=resize_mode):
+                _, layout = MODULE.reference_collage(
+                    images,
+                    "grid",
+                    3,
+                    "2,1,1",
+                    0,
+                    resize_mode,
+                    "start",
+                    "#000000",
+                    False,
+                    "area",
+                    64,
+                    True,
+                    "area",
+                )
+                areas = [item.width * item.height for item in layout.placements]
+                self.assertAlmostEqual(areas[0] / areas[1], 2.0, delta=0.05)
+                self.assertAlmostEqual(areas[0] / areas[2], 2.0, delta=0.05)
+                for image, placement in zip(images.values(), layout.placements):
+                    source_ratio = image.shape[2] / image.shape[1]
+                    self.assertAlmostEqual(placement.width / placement.height, source_ratio, delta=0.03)
+
+    def test_auto_area_normalizes_before_weight_sizing(self):
+        images = {
+            "image0": torch.zeros(1, 30, 90, 3),
+            "image1": torch.zeros(1, 80, 40, 3),
+            "image2": torch.zeros(1, 50, 50, 3),
+        }
+        _, actual = MODULE.reference_collage(
+            images, "grid", 3, "2,1,1", 0, "auto", "start", "#000000", False, "area", 64, True, "area"
+        )
+        sources = (source(0, 90, 30, 2), source(1, 40, 80), source(2, 50, 50))
+        expected_sources = MODULE.apply_weight_sizing(MODULE.normalize_sources(sources, "area", 64, True), "area")
+        expected = MODULE.calculate_layout(expected_sources, "grid", 3, 0, "auto", "start", False, True)
+        self.assertEqual(actual, expected)
+
 
 if __name__ == "__main__":
     unittest.main()

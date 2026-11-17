@@ -55,11 +55,13 @@ weights. A geometric-mean reference keeps weights relative rather than making
 equal non-unit weights enlarge every image. Integer dimensions can introduce
 small ratio errors.
 
-Normalized and weighted dimensions are authoritative layout targets. Both
-`resize_mode` values remain accepted, but no second per-image auto-resize is
+Weighted dimensions are authoritative layout targets. `resize_mode=none`
+always uses original source dimensions as its baseline and ignores all three
+normalization settings. `resize_mode=auto` applies the selected normalization
+first; selecting `normalize_mode=none` also uses the original baseline. Weight
+sizing remains active in every combination. No second per-image auto-resize is
 applied after weighted sizing because that would invalidate the requested area
-ratios. The original low-level `none`/`auto` solver behavior remains available
-to direct callers. Tensors are resized only once, during final compositing.
+ratios. Tensors are resized only once, during final compositing.
 Gaps are internal by default; `frame_gap` also applies the selected gap to all
 four outer canvas edges. `columns` applies to grid mode; mosaic uses its
 deterministic recursive splits.
