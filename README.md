@@ -1,4 +1,8 @@
+# Utility Suite
+
 Tiling and inpainting/outpainting logics.
+
+![](./assets/ComfyUI_temp_blysc_00013_.webp)
 
 ---
 
@@ -17,6 +21,16 @@ Widget defaults are `guide_size=512`, `guide_size_for=bbox`,
 `feather=5`, `noise_mask=enabled`, `noise_mask_feather=20`,
 `tiled_encode=disabled`, `tiled_decode=disabled`, and `operation=sequential`.
 
+## SEGS Sampler Unsample
+
+`SEGS Sampler Unsample` configures an optional reverse-then-forward diffusion
+pass for `SEGS Loop Sample`. It raises a crop from low noise to the selected
+sigma level with CFG 1, then resamples it using the loop's normal controls.
+`steps_to_run=-1` uses the full schedule; reverse execution currently supports
+the Euler sampler only.
+
+![](./assets/ComfyUI_temp_blysc_00005_.webp)
+
 ## SEGS Loop
 
 `SEGS Loop` (displayed as `SEGS Loop Start`) runs the nodes between it and a
@@ -33,13 +47,6 @@ regions see earlier edits, while `individual` processes stored crops separately
 and pastes them all at the end. Connect a `SEGS Sampler Unsample` output to
 optionally unsample each crop before the normal sampling pass.
 
-## SEGS Loop Pass
-
-`SEGS Loop Pass` ends a SEGS loop without sampling. Use it when the loop body
-already updates the SEGS, and optionally the full image, by other means. Any
-connected `termination` outputs are forced to run once per iteration, which is
-useful for previews or other side effects.
-
 ## Guide Size (SEG_ELT)
 
 `Guide Size (SEG_ELT)` resizes one SEG crop and mask to a sampling-friendly
@@ -48,6 +55,8 @@ measured from either the SEG bbox or crop region; it is not a fixed width or
 height. Scaling respects the connected VAE's spatial compression ratio and
 `max_size`; `none` returns the original dimensions unchanged.
 
+![](./assets/ComfyUI_temp_blysc_00004_.webp)
+
 ## SEGPaste
 
 `SEGPaste` replaces one SEG's stored crop with a processed image and optionally
@@ -55,13 +64,12 @@ pastes it onto a full-size image. The crop is resized to the SEG's crop region,
 blended through its existing cropped mask, and softened by `feather`. With no
 full image connected, the updated SEGS is still returned for later use.
 
-## SEGS Sampler Unsample
+## SEGS Loop Pass
 
-`SEGS Sampler Unsample` configures an optional reverse-then-forward diffusion
-pass for `SEGS Loop Sample`. It raises a crop from low noise to the selected
-sigma level with CFG 1, then resamples it using the loop's normal controls.
-`steps_to_run=-1` uses the full schedule; reverse execution currently supports
-the Euler sampler only.
+`SEGS Loop Pass` ends a SEGS loop without sampling. Use it when the loop body
+already updates the SEGS, and optionally the full image, by other means. Any
+connected `termination` outputs are forced to run once per iteration, which is
+useful for previews or other side effects.
 
 ## MASK to Tile SEGS
 
@@ -76,6 +84,8 @@ overlap. Connecting an image stores the matching image crop in every SEG.
 that exact boundary with width-to-height-ratio tiles. It never expands or
 shrinks the detected boundary. Overlap may be specified in pixels or percent,
 and `feather_overlap` creates complementary tile masks for smoother recombining.
+
+![](./assets/ComfyUI_temp_blysc_00008_.webp)
 
 ## SEGS Change Ratio
 
@@ -100,6 +110,8 @@ shrink masks or taper blur corners. The extra outputs expose the foreground
 partition, original union/background, processed background, coverage status,
 and cleaned input order for inspection.
 
+![](./assets/ComfyUI_temp_blysc_00014_.webp)
+
 ## Composite for Outpainting
 
 `Composite for Outpainting` places and optionally resizes a subject on a canvas
@@ -107,6 +119,8 @@ using percentage-based alignment, then builds soft and thresholded hard masks
 for outpainting. Optional canvas and subject masks control the reusable area;
 blur and tapered corners soften its boundary. It returns the plain composite,
 a mask-applied preview, the soft mask, and the hard mask.
+
+![](./assets/ComfyUI_temp_blysc_00015_.webp)
 
 ## Batch MASK to SEGS with Comparison
 
@@ -125,3 +139,5 @@ linear scale; normalization can first bring mixed source sizes to a common
 longest side, shortest side, or approximate area. Use `gap`, `frame_gap`,
 alignment, and background to control the finished canvas; `columns` applies to
 grid mode only.
+
+![](./assets/ComfyUI_temp_blysc_00016_.webp)
